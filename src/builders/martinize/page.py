@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
@@ -7,7 +8,6 @@ import streamlit as st
 from src.builders.martinize.config import Config, ProteinConfig
 from src.builders.martinize.runner import MartinizeRunner
 from src.builders.martinize.gui import render_input, render_configure, _reset_downstream_state
-from src.core.global_info import GlobalInfo
 
 # ─── Step enum ────────────────────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ def main(temp_folder: str) -> tuple[str | None, Config | None]:
         return _render_configure_step(config, runner, protein_idx, temp_folder)
 
     elif step == MartinizeStep.RESULTS:
-        return _render_results_step(config, runner, protein_idx)
+        return _render_results_step(config, runner, protein_idx, temp_folder)
 
     return None, None
 
@@ -138,6 +138,7 @@ def _render_input_step(
                 for err in all_errors:
                     st.error(err)
             else:
+                _invalidate_outputs()   # inputs may have changed -> results must be recomputed
                 # Go to the configure step if input mode is martinize, else go to the result step
                 first_input_mode = config.proteins[0].protein_input_mode
                 if first_input_mode == "martinize":
@@ -189,7 +190,8 @@ def _render_configure_step(
         else:
             config.proteins[p] = pconfig
             st.session_state.martinize_config = config
-            # Move to RESULTS for this protein
+            # Move to RESULTS for this protein (settings changed -> recompute)
+            _invalidate_outputs([p])
             _set_protein_idx(p)
             _set_step(MartinizeStep.RESULTS)
             st.rerun()
@@ -204,6 +206,7 @@ def _render_results_step(
     config: Config,
     runner: MartinizeRunner,
     protein_idx: int,
+    temp_folder: str,
 ) -> tuple[str | None, Config | None]:
     p = protein_idx
     pconfig = config.proteins[p]
@@ -213,13 +216,27 @@ def _render_results_step(
     building_key = f"_martinize_building_p{p}"
     output_key   = f"martinize_output_p{p}"
 
-    if st.session_state.get(building_key, True):
-        timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pconfig.base_folder = os.path.join(GlobalInfo().base_folder, f"martinize_processing-p{p}-{timestamp}")
+    # run only if there is no stored result (coming back here must not silently re-run)
+    if st.session_state.get(building_key, output_key not in st.session_state):
+        # work inside the session temp folder: no intermediate output folders
+        pconfig.base_folder = os.path.join(temp_folder, "martinize", f"p{p}")
+        shutil.rmtree(pconfig.base_folder, ignore_errors=True)
         with st.spinner(f"Executing martinize2 workflow for protein {p+1}..."):
             output = runner.run(config, protein_index=p)
+
+        if output.get("success"):
+            outputs = output.get("outputs", {})
+
+            pconfig.output_cg_pdb_path = outputs.get("cg_pdb_path", "")
+            pconfig.output_itp_path = outputs.get("itp_path", "")
+
+            # Make sure the updated ProteinConfig is stored in the top-level config
+            config.proteins[p] = pconfig
+            st.session_state.martinize_config = config
+
         st.session_state[output_key] = output
         st.session_state[building_key] = False
+
 
     output = st.session_state.get(output_key, {})
 
@@ -238,38 +255,11 @@ def _render_results_step(
             with st.expander("Martinize2 Log Output"):
                 st.code(outputs["log"])
 
-        if "zip_path" in outputs and os.path.exists(outputs["zip_path"]):
-            with open(outputs["zip_path"], "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Martinize Results Package (.zip)",
-                    data=f.read(),
-                    file_name=f"martinize_results_p{p+1}.zip",
-                    mime="application/zip",
-                )
-
-        # Pre-seed membrane builder keys for the last protein
-        protein_files = st.session_state.get("protein_files", {})
-        st.session_state["protein_files"] = protein_files
-        if pconfig.protein_input_mode == "upload_cg":
-            f = pconfig.cg_pdb_path.split("/")[-1]
-            pdb = pconfig.cg_pdb_path
-            itp = pconfig.cg_itp_path
-        elif pconfig.protein_input_mode == "martinize":
-            f = outputs.get('cg_pdb_path').split("/")[-1]
-            pdb = outputs.get('cg_pdb_path')
-            itp = outputs.get('itp_path')
-        else:
-            raise ValueError(f"Unknown protein input mode: {pconfig.protein_input_mode}")
-
-        st.session_state["protein_files"][f] = {}
-        st.session_state["protein_files"][f]["pdb_path"] = pdb
-        st.session_state["protein_files"][f]["itp_path"] = itp
-
         st.divider()
         if is_last:
             if st.button("Next: Membrane Builder ➡️", type="primary"):
                 st.session_state.pop(building_key, None)
-                return "done", config
+                return _finish(config)
         else:
             if st.button(f"Next protein ({p + 2} of {len(config.proteins)}) ➡️", type="primary"):
                 st.session_state.pop(building_key, None)
@@ -292,6 +282,7 @@ def _render_results_step(
 
         if col_back.button("← Go back and fix", use_container_width=True):
             st.session_state.pop(building_key, None)
+            st.session_state.pop(output_key, None)
             _set_step(MartinizeStep.CONFIGURE)
             st.rerun()
 
@@ -302,6 +293,7 @@ def _render_results_step(
         )
         if col_delete.button(delete_label, use_container_width=True):
             st.session_state.pop(building_key, None)
+            _invalidate_outputs(range(p, len(config.proteins)))   # indices shift after the delete
             config.proteins.pop(p)
             config.n_proteins = len(config.proteins)
             st.session_state.martinize_config = config
@@ -315,7 +307,7 @@ def _render_results_step(
                 # Deleted the last protein; the new last one is done already
                 if is_last:
                     # was the last → now go to membrane builder
-                    return "done", config
+                    return _finish(config)
                 else:
                     _set_protein_idx(len(config.proteins) - 1)
                     _set_step(MartinizeStep.RESULTS)
@@ -335,6 +327,49 @@ def _render_results_step(
     return None, None
 
 
+# ─── Output bookkeeping ───────────────────────────────────────────────────────
+
+def _finish(config: Config) -> tuple[str, Config]:
+    """Hand the finished proteins to the membrane builder (single source of truth)."""
+    st.session_state["protein_files"] = config.protein_files()
+    return "done", config
+
+
+def _invalidate_outputs(indices=None) -> None:
+    """Forget stored results, so the affected proteins are re-run when visited."""
+    if indices is None:
+        keys = [k for k in st.session_state.keys() if k.startswith("martinize_output_p")]
+    else:
+        keys = [f"martinize_output_p{i}" for i in indices]
+    for k in keys:
+        st.session_state.pop(k, None)
+
+
+def reset_outputs(temp_folder: str) -> None:
+    """Called by the wizard when the user moves BACK into this builder.
+
+    Deletes everything the builder produced (work folders, result paths, protein list
+    handed to the membrane builder) and returns to the first page. Uploaded inputs and
+    all settings are kept. The proteins are created again when the user moves forward.
+    """
+    shutil.rmtree(os.path.join(temp_folder, "martinize"), ignore_errors=True)
+
+    config = st.session_state.get("martinize_config")
+    if config is not None:
+        for pc in config.proteins:
+            pc.output_cg_pdb_path = ""
+            pc.output_itp_path = ""
+            pc.base_folder = ""
+
+    for k in list(st.session_state.keys()):
+        if k.startswith("martinize_output_p") or k.startswith("_martinize_building_p"):
+            del st.session_state[k]
+    st.session_state.pop("protein_files", None)
+
+    _set_protein_idx(0)
+    _set_step(MartinizeStep.INPUT)
+
+
 # ─── Harvest helpers ──────────────────────────────────────────────────────────
 
 def _harvest_input_to_pconfig(
@@ -345,7 +380,7 @@ def _harvest_input_to_pconfig(
 ) -> None:
     """Read session_state widget values for protein i into its ProteinConfig."""
     pconfig.protein_input_mode = st.session_state.get(f"protein_input_mode_p{i}", pconfig.protein_input_mode)
-    pconfig.copy_number        = st.session_state.get(f"copy_number_p{i}",        pconfig.copy_number)
+    pconfig.cg_martini_version = st.session_state.get(f"cg_version_p{i}",         pconfig.cg_martini_version)
     pconfig.atomistic_source   = st.session_state.get(f"atomistic_source_p{i}",   pconfig.atomistic_source)
     pconfig.fetch_pdb_id       = st.session_state.get(f"fetch_pdb_id_p{i}",       pconfig.fetch_pdb_id)
     pconfig.clean_structure    = st.session_state.get(f"clean_structure_p{i}",    pconfig.clean_structure)

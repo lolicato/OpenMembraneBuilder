@@ -199,7 +199,7 @@ quit
         input_path = os.path.abspath(input_path)
         output_dir = os.path.abspath(output_dir)
         output_cg = os.path.join(output_dir, f"protein_cg_p{protein_index}.pdb")
-        output_top = os.path.join(output_dir, "protein_p{protein_index}.top")
+        output_top = os.path.join(output_dir, f"protein_p{protein_index}.top")
         output_itp = os.path.join(output_dir, f"molecule_p{protein_index}_0.itp")
 
         cmd = [

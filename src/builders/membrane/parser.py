@@ -4,7 +4,6 @@ from typing import List, Dict
 import os
 import pandas as pd
 import re
-import streamlit as st
 _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -21,6 +20,57 @@ class MembraneParser:
         )
         self.membrane_builder = MembraneBuilder(self.lipid_parser)
         
+    def _merge_external_available_lipids(
+        self,
+        available_lipids: list[str],
+        selected_ff: str,
+        extern_config: dict | None = None,
+    ) -> list[str]:
+        extern_config = extern_config or {}
+        lipid_definitions = extern_config.get("lipid_definitions", {})
+
+        merged = set(available_lipids)
+
+        for lipid_name, lipid_info in lipid_definitions.items():
+            lipid_ff = lipid_info.get("force_field") or lipid_info.get("selected_ff")
+            if lipid_ff == selected_ff:
+                merged.add(lipid_name)
+
+        return sorted(merged)
+
+
+    def _merge_external_lipid_map(
+        self,
+        lipid_map: dict,
+        selected_ff: str,
+        extern_config: dict | None = None,
+    ) -> dict:
+        extern_config = extern_config or {}
+        lipid_definitions = extern_config.get("lipid_definitions", {})
+
+        merged = dict(lipid_map)
+
+        for lipid_name, lipid_info in lipid_definitions.items():
+            lipid_ff = lipid_info.get("force_field") or lipid_info.get("selected_ff")
+            if lipid_ff != selected_ff:
+                continue
+
+            merged[lipid_name] = {
+                "resname": lipid_name,
+                "moltype": lipid_info.get("moltype", ""),
+                "head": lipid_info.get("head", ""),
+                "linker": lipid_info.get("linker", ""),
+                "tail1": lipid_info.get("tail1", ""),
+                "tail2": lipid_info.get("tail2", ""),
+                "tail1_beads": lipid_info.get("tail1_beads", ""),
+                "tail2_beads": lipid_info.get("tail2_beads", ""),
+                "is_custom": lipid_info.get("is_custom", True),
+                "source": lipid_info.get("source", "external"),
+                "force_field": lipid_ff,
+            }
+
+        return merged
+    
 
     def get_force_fields(self) -> list[str]:
         toppar = self.global_info.toppar_folder_path
@@ -30,13 +80,47 @@ class MembraneParser:
             if f.endswith(".top")
         ]
 
-    def get_available_lipids(self, selected_ff: str) -> list[str]:
-        self.membrane_builder.setup_lipids(selected_ff)
+    def get_available_lipids(
+    self,
+    selected_ff: str,
+    extern_config: dict | None = None,
+) -> list[str]:
         ff_key = f"{selected_ff}.top"
-        return self.lipid_parser.lipidmap.get(ff_key, [])
+        available_lipids = self.lipid_parser.lipidmap.get(ff_key, [])
+        if not available_lipids:
+            available_lipids = self.lipid_parser.scanfflipids(selected_ff)
+        return self._merge_external_available_lipids(available_lipids, selected_ff, extern_config)
 
-    def build_lipid_map(self, selected_ff: str) -> dict:
-        return self.lipid_parser.buildlipidmap(selected_ff)
+    def get_default_entries(self, available_lipids: list[str], abs_mode: bool = False) -> list[list]:
+        if not available_lipids:
+            available_lipids = ["POPC"]
+        default_lipid = available_lipids[0]
+        return [[default_lipid, 1.0, 1.0, 0.6, 0.6]]
+
+    def build_lipid_map(
+        self,
+        selected_ff: str,
+        extern_config: dict | None = None,
+    ) -> dict:
+        lipid_map = self.lipid_parser.buildlipidmap(selected_ff)
+        return self._merge_external_lipid_map(lipid_map, selected_ff, extern_config)
+
+    def discover_membrane_templates(
+        self,
+        resources_dir: str | os.PathLike[str] | None = None,
+    ) -> list[Path]:
+        base_dir = Path(resources_dir) if resources_dir is not None else Path(self.global_info.resources_path)
+        templates_dir = base_dir / "membrane_templates"
+        if not templates_dir.exists():
+            return []
+
+        return sorted(
+            [
+                p for p in templates_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in {".csv", ".ob"}
+            ],
+            key=lambda p: p.name.lower(),
+        )
 
     def load_membrane_template_from_csv(self, path: str, available_lipids: list, gui: bool = True):
         return self.membrane_builder.load_membrane_template_from_csv(path, available_lipids, gui=gui)
@@ -49,37 +133,6 @@ class MembraneParser:
         self.membrane_builder.config = config
         return self.membrane_builder.check_chol_import()
     
-
-class ForceFieldManager:
-    def get_forcefield_names(self, toppar_dir: str) -> list:
-        return [os.path.splitext(f)[0] for f in os.listdir(toppar_dir) if f.endswith('.top')]
-
-    def copy_ff_folder(self, ff_name: str, destination: str):
-        src_folder = os.path.join("toppar", ff_name)
-        dst_folder = os.path.join(destination, ff_name)
-        
-        src_itp = os.path.join("toppar", f"{ff_name}.itp")
-        dst_itp = os.path.join(destination, f"{ff_name}.itp")
-        
-        
-        if os.path.exists(dst_folder):
-            shutil.rmtree(dst_folder)
-        if os.path.exists(dst_itp):
-            os.remove(dst_itp)
-        
-        if os.path.exists(src_folder):
-            shutil.copytree(src_folder, dst_folder, dirs_exist_ok=True)
-        if os.path.exists(src_itp):
-            shutil.copy(src_itp, dst_itp)
-
-
-    def copy_mdp_files(self, ff_name: str, destination: str, system_type: str):
-        src_mdp = os.path.join("mdp", ff_name, system_type)
-        dst_mdp = os.path.join(destination, "mdp")
-        if os.path.exists(src_mdp):
-            os.makedirs(dst_mdp, exist_ok=True)
-            for file in os.listdir(src_mdp):
-                shutil.copy(os.path.join(src_mdp, file), os.path.join(dst_mdp, file))
 
 class MartiniLipidParser:
     
@@ -120,8 +173,8 @@ class MartiniLipidParser:
                 includepath = self.toppardir / match
                 if includepath.exists():
                     includes.append(includepath)
-        except Exception as e:
-            st.warning(f"Parse {fffile}: {e}")
+        except Exception:
+            return []
         return includes
     
     def extractmoleculetypessinglefile(self, filepath: str) -> List[str]:
@@ -479,6 +532,7 @@ class MembraneBuilder:
     def __init__(self, parser: MartiniLipidParser):
         self.parser = parser
         self.entries = []
+        self.config = None
     
     def load_membrane_template_from_csv(self, uploaded_file, available_lipids: list, gui=True):
         try:
@@ -521,9 +575,12 @@ class MembraneBuilder:
         parsed_templates = {}
 
         for name, lines in blocks.items():
-            df = self._parse_membrane_block(lines, available_lipids, block_name=name)
+            try:
+                df = self._parse_membrane_block(lines, available_lipids, block_name=name)
+            except ValueError:
+                return None  # error already shown via st.error inside the helper
             if df is None:
-                return  # Error already reported via st.error inside helper
+                return None
             parsed_templates[name] = df.to_dict(orient="records")
 
         # --- Store results ---
@@ -536,12 +593,6 @@ class MembraneBuilder:
             name: self._records_to_entries(records)
             for name, records in parsed_templates.items()
         }
-        st.session_state.membrane_entries = entries_dict  # single source of truth
-
-        # Expose first template for display in the UI editor
-        first_entries = next(iter(entries_dict.values()))
-        st.session_state.membrane_template = next(iter(parsed_templates.values()))  # records, for display
-        st.session_state.lipid_template = first_entries  # legacy display key
 
         return entries_dict
 
@@ -617,33 +668,51 @@ class MembraneBuilder:
     
 
     
-    def setup_lipids(self, forcefield: str):
-        """Setup lipids for FF - initializes session state."""
+    def setup_lipids(self, forcefield: str, extern_config: dict | None = None):
+        """Return a pure data payload for membrane default state.
+
+        The page layer is responsible for writing this into session state.
+        """
         available_lipids = self.parser.scanfflipids(forcefield)
+
+        extern_config = extern_config or {}
+        lipid_definitions = extern_config.get("lipid_definitions", {})
+
+        for lipid_name, lipid_info in lipid_definitions.items():
+            lipid_ff = lipid_info.get("force_field") or lipid_info.get("selected_ff")
+            if lipid_ff == forcefield and lipid_name not in available_lipids:
+                available_lipids.append(lipid_name)
+
+        available_lipids = sorted(available_lipids)
         if not available_lipids:
             available_lipids = ["POPC"]
-            st.sidebar.warning(f"⚠️ No lipids in {forcefield} → POPC")
-        
-        if 'entries_rel' not in st.session_state:
-            default_entry = [available_lipids[0], 1.0, 1.0, 0.6, 0.6]
-            st.session_state.entries_rel = [default_entry]
-        if 'entries_abs' not in st.session_state:
-            default_entry = [available_lipids[0], 1.0, 1.0, 0.6, 0.6]
-            st.session_state.entries_abs = [default_entry]
 
-    def lipid_param(self,lip,ff):
+        default_entry = [available_lipids[0], 1.0, 1.0, 0.6, 0.6]
+        return {
+            "available_lipids": available_lipids,
+            "entries_rel": [default_entry],
+            "entries_abs": [default_entry],
+        }
+
+    def lipid_args(self, lip, ff) -> str:
+        molecule_builder_index = getattr(self.config, "molecule_builder_index", {}) or {}
+
+        if lip in molecule_builder_index:
+            return "charge:lib:params:MFB"
+
         if self.config.selected_ff == "martini_v2.2":
-            if lip =="CHOL" or lip == "CHOL2":
+            if lip == "CHOL" or lip == "CHOL2":
                 self.config.chol_import_needed = "CHOL" if lip == "CHOL" else "CHOL2"
-                return "params:IMPORTED"
-            else:
-                return "params:M2"    
-        elif len(lip) == 4 and lip[-2] == "P":
-            return "params:TOP"
-        elif len(lip) == 3 and lip[-2:] == "SM":
-            return "params:TOP"
-        else:
-            return "params:default"    
+                return "charge:lib:params:IMPORTED"
+            return "charge:top:params:M2"
+
+        if len(lip) == 4 and lip[-2] == "P":
+            return "charge:top:params:TOP"
+
+        if len(lip) == 3 and lip[-2:] == "SM":
+            return "charge:top:params:TOP"
+
+        return "charge:top:params:default"  
 
     def create_membrane_str(self,config):
         """Create the COBY input string to generate the membrane."""
@@ -653,26 +722,25 @@ class MembraneBuilder:
         ff = config.selected_ff
         if not config.abs_lip_vals:
             upper_string = "leaflet:upper " + " ".join([
-                f"lipid:{lip}:{upper}:charge:top:{self.lipid_param(lip,ff)}:apl:{apl}"
+                f"lipid:{lip}:{upper}:{self.lipid_args(lip, ff)}:apl:{apl}"
                 for lip, upper, _, apl, _ in entries
                 if float(upper) > 0
             ])
 
             lower_string = "leaflet:lower " + " ".join([
-                f"lipid:{lip}:{lower}:charge:top:{self.lipid_param(lip,ff)}:apl:{apl}"
+                f"lipid:{lip}:{lower}:{self.lipid_args(lip, ff)}:apl:{apl}"
                 for lip, _, lower, _, apl in entries
                 if float(lower) > 0
             ])
-
         else:
             upper_string = "leaflet:upper lipid_optim:abs_val " + " ".join([
-                f"lipid:{lip}:{upper}:charge:top:{self.lipid_param(lip,ff)}:apl:{apl}"
+                f"lipid:{lip}:{upper}:{self.lipid_args(lip, ff)}:apl:{apl}"
                 for lip, upper, _, apl, _ in entries
                 if float(upper) > 0
             ])
 
             lower_string = "leaflet:lower lipid_optim:abs_val " + " ".join([
-                f"lipid:{lip}:{lower}:charge:top:{self.lipid_param(lip,ff)}:apl:{apl}"
+                f"lipid:{lip}:{lower}:{self.lipid_args(lip, ff)}:apl:{apl}"
                 for lip, _, lower, _, apl in entries
                 if float(lower) > 0
             ])
@@ -684,7 +752,7 @@ class MembraneBuilder:
         """Check entries_current for cholesterol lipids and set chol_import_needed if found."""
         if self.config.selected_ff != "martini_v2.2":
             return None
-        for lip, *_ in self.config.entries_current:
+        for lip, *_ in (getattr(self.config, "entries_current", None) or []):
             if lip in ("CHOL", "CHOL2"):
                 return lip
         return None

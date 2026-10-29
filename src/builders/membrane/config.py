@@ -1,56 +1,54 @@
 from dataclasses import dataclass, asdict, field
 import json
 
+
 @dataclass
 class Config:
-    # --- General ---
     output_name: str = ""
     selected_ff: str = "martini_v3"
     base_folder: str = ""
-    selected_module: str = ""
 
-
-    # --- Box ---
     box_x: float = 10.0
     box_y: float = 10.0
     box_z: float = 10.0
     box_type: str = "rectangular"
 
-    # --- Solvation / ions ---
     solvation: str = ""
     salt_molarity: float = 0.15
 
-    # --- Systems ---
     n_systems: int = 1
 
+    protein_files: dict = field(default_factory=dict)
 
-    # --- Resolved file paths (set after writing uploads to disk) ---
-    pdb_path: str = ""
-    itp_path: str = ""
-
-    # --- Lipids ---
     template_active: bool = False
-    template_path: str =""
+    template_path: str = ""
     membrane_string: str = ""
-
-
 
     abs_lip_vals: bool = False
     lipid_entries_relative: list = None
     lipid_entries_absolute: list = None
     entries: list = None
+    entries_current: list = None  # transient: set by the runner per template
 
-    # --- Protein positioning ---
-    # z placement strategy
-    z_method: str = "Absolute z position"   # or "Height above Membrane"
-    distance_to_mem: float = 2.0     
-    # randomize flags
-    randomize_pos: bool = False        # randomise x/y for all systems equally
-    randomize_pos_every: bool = False  # re-randomise x/y for each system
-    randomize_rot: bool = False        # randomise rotation for all systems equally
-    randomize_rot_every: bool = False  # re-randomise rotation for each system
+    z_method: str = "Absolute z position"
+    distance_to_mem: float = 2.0
+    randomize_pos: bool = False
+    randomize_pos_every: bool = False
+    randomize_rot: bool = False
+    randomize_rot_every: bool = False
+    more_copies: bool = False
+    copy_number: int = 2
+    randomize_rot_all_copies: bool = False
     protein_params: dict = field(default_factory=dict, repr=False, compare=False)
-    
+
+    # previously ad-hoc attributes -> now real fields so asdict()/JSON keep them
+    insertion_params: dict = field(default_factory=dict, repr=False, compare=False)
+    use_protein_distance: bool = False
+    protein_distance: float = 1.0
+
+    molecule_builder_index: dict = field(default_factory=dict, repr=False, compare=False)
+    external_lipid_definitions: dict = field(default_factory=dict, repr=False, compare=False)
+    extern_config: dict = field(default_factory=dict, repr=False, compare=False)  # transient
 
     def __post_init__(self):
         if self.lipid_entries_relative is None:
@@ -59,19 +57,35 @@ class Config:
             self.lipid_entries_absolute = []
         if self.entries is None:
             self.entries = []
+        if self.entries_current is None:
+            self.entries_current = []
         if not self.protein_params:
             self.protein_params = {
-                f"R{i + 1:04d}": {"cx": 0.0, "cy": 0.0, "cz": 0.0,
-                                "rx": 0.0, "ry": 0.0, "rz": 0.0}
+                f"R{i + 1:04d}": {
+                    "cx": 0.0,
+                    "cy": 0.0,
+                    "cz": 0.0,
+                    "rx": 0.0,
+                    "ry": 0.0,
+                    "rz": 0.0,
+                }
                 for i in range(self.n_systems)
             }
 
-    # --- JSON helpers ---
     def to_json(self, path: str):
         data = asdict(self)
-        data.pop("lipid_entries_absolute", None)
-        data.pop("lipid_entries_relative", None)
-        data.pop("membrane_string", None)
+
+        transient_keys = {
+            "lipid_entries_absolute",
+            "lipid_entries_relative",
+            "membrane_string",
+            "entries_current",
+            "extern_config",
+            "external_lipid_definitions",
+        }
+        for key in transient_keys:
+            data.pop(key, None)
+
         with open(path, "w") as f:
             json.dump(data, f, indent=4)
 

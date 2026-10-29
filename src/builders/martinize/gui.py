@@ -13,7 +13,7 @@ def render_input(config: Config, temp_folder: str) -> None:
 
     Shows one panel per protein in config.proteins.  Each panel has its own
     header ("Protein N"), a delete button, mode selection, file upload / RCSB
-    fetch, copy_number field, and a clean-structure checkbox.
+    fetch and a clean-structure checkbox.
 
     All widget keys are namespaced with ``_p{i}`` so panels don't collide.
 
@@ -92,9 +92,6 @@ def _render_protein_panel(
         else:
             _render_atomistic_panel(i, pconfig, temp_dir)
 
-        # ── Copy number ───────────────────────────────────────────────────────
-        st.divider()
-        _render_copy_number(i, pconfig)
 
 
 def _render_upload_cg_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> None:
@@ -128,6 +125,17 @@ def _render_upload_cg_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> N
             st.success(f"Uploaded: {uploaded_cg_itp.name}")
         elif f"cg_itp_path_p{i}" not in st.session_state:
             st.session_state[f"cg_itp_path_p{i}"] = pconfig.cg_itp_path
+
+    version_options = ["unknown", "Martini 2", "Martini 3"]
+    version_key = f"cg_version_p{i}"
+    st.session_state.setdefault(version_key, pconfig.cg_martini_version if pconfig.cg_martini_version in version_options else "unknown")
+    st.selectbox(
+        "Martini version of these files",
+        version_options,
+        key=version_key,
+        help="Used to warn you if the protein does not match the force field of the membrane. "
+             "Martini 2 and Martini 3 models must not be mixed.",
+    )
 
 
 def _render_atomistic_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> None:
@@ -190,19 +198,6 @@ def _render_atomistic_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> N
         "Clean structure with MDAnalysis (removes water, ligands, ions – keeps protein only)",
         value=st.session_state.get(f"clean_structure_p{i}", pconfig.clean_structure),
         key=f"clean_structure_p{i}",
-    )
-
-
-def _render_copy_number(i: int, pconfig: ProteinConfig) -> None:
-    """Render the copy number field with +/- buttons."""
-    st.subheader("Number of copies")
-    curr = st.session_state.get(f"copy_number_p{i}", pconfig.copy_number)
-    col_num, _ = st.columns([1,1])
-    col_num.number_input(
-        "Copies", min_value=1, step=1,
-        value=curr,
-        key=f"copy_number_p{i}",
-        label_visibility="collapsed",
     )
 
 
