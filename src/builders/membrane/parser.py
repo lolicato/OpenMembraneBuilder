@@ -261,6 +261,7 @@ class MartiniLipidParser:
             "TAG":  "Triacylglycerol (TAG)",
             "MAG":  "Monoacylglycerol (MAG)",
             "CHOL": "Cholesterol",
+            "CL":  "Cardiolipin (CL)",
         }
 
         # Forcefield-specific sterol label overrides.
@@ -289,6 +290,7 @@ class MartiniLipidParser:
             "diglyceride_ltf":      "Glycerol",
             "triglyceride_ltf":     "Glycerol",
             "monoglyceride_ltf":    "Glycerol",
+            "cardiolipin_ltf":      "Glycerol (cardiolipin)",
         }
 
         MOLTYPE_LABEL_MAP = {
@@ -303,6 +305,7 @@ class MartiniLipidParser:
             "diglyceride_ltf":      "Diglyceride",
             "triglyceride_ltf":     "Triglyceride",
             "monoglyceride_ltf":    "Monoglyceride",
+            "cardiolipin_ltf":      "Cardiolipin",
         }
 
         # Known sterol resnames to detect in files that lack @COBY annotations.
@@ -319,7 +322,16 @@ class MartiniLipidParser:
             re.IGNORECASE
         )
         coby_pat = re.compile(
-            r'@COBY\s+moltype:(\S+)\s+head:(\S+)\s+tail1:(\S+)\s+tail2:(\S+)\s+name:(\S+)',
+            r'@COBY\s+'
+            r'moltype:(?P<moltype>\S+)\s+'
+            r'(?:core:(?P<core>\S+)\s+)?'
+            r'(?:linker1:(?P<linker1>\S+)\s+)?'
+            r'(?:tail11:(?P<tail11>\S+)\s+tail12:(?P<tail12>\S+)\s+)?'
+            r'(?:linker2:(?P<linker2>\S+)\s+)?'
+            r'(?:tail21:(?P<tail21>\S+)\s+tail22:(?P<tail22>\S+)\s+)?'
+            r'(?:head:(?P<head>\S+)\s+)?'
+            r'(?:tail1:(?P<tail1>\S+)\s+tail2:(?P<tail2>\S+)\s+)?'
+            r'name:(?P<name>\S+)',
             re.IGNORECASE
         )
         # Detects [ moleculetype ] blocks whose name is a known sterol (no @COBY needed).
@@ -399,6 +411,7 @@ class MartiniLipidParser:
                 ("monoacylglycerol",                  "Monoacylglycerol (MAG)"),
                 ("ether lipid",                       "Ether lipid"),
                 ("plasmalogen",                       "Plasmalogen"),
+                ("cardiolipin",                       "Cardiolipin (CL)"),
             ]
             for kw, label in keywords:
                 if kw in t:
@@ -425,7 +438,12 @@ class MartiniLipidParser:
                     if m:
                         block_by_name[m.group(2)] = block
 
-                for moltype_raw, head_raw, tail1_beads, tail2_beads, name in coby_matches:
+                for match in coby_pat.finditer(content):
+                    moltype_raw = match.group('moltype')
+                    head_raw = match.group('head') or match.group('core') or ''
+                    tail1_beads = match.group('tail11') or match.group('tail1')
+                    tail2_beads = match.group('tail21') or match.group('tail2')
+                    name = match.group('name')
                     block = block_by_name.get(name, content)
 
                     tail1_str = tail2_str = None
@@ -433,7 +451,7 @@ class MartiniLipidParser:
                     if title_m:
                         tail1_str, tail2_str = parse_tails_from_title(title_m.group(1))
                     if not tail1_str:
-                        tail1_str = beads_to_acyl(tail1_beads)
+                        tail1_str = beads_to_acyl(tail1_beads) if tail1_beads else "Unknown"
                     if not tail2_str:
                         tail2_str = beads_to_acyl(tail2_beads) if tail2_beads else "None"
 
@@ -442,7 +460,10 @@ class MartiniLipidParser:
                     if desc_m:
                         head_label = headgroup_from_description(desc_m.group(1))
                     if not head_label:
-                        head_label = HEADGROUP_MAP.get(head_raw.upper(), f"Headgroup ({head_raw})")
+                        if 'cardiolipin' in moltype_raw.lower():
+                            head_label = HEADGROUP_MAP.get('CL', 'Cardiolipin (CL)')
+                        else:
+                            head_label = HEADGROUP_MAP.get(head_raw.upper(), f"Headgroup ({head_raw})")
 
                     linker_label = MOLTYPE_LINKER_MAP.get(
                         moltype_raw.lower(), f"Unknown ({moltype_raw})"
@@ -710,6 +731,8 @@ class MembraneBuilder:
             return "charge:top:params:TOP"
 
         if len(lip) == 3 and lip[-2:] == "SM":
+            return "charge:top:params:TOP"
+        if len(lip) == 4 and lip[-2:] == "CL":
             return "charge:top:params:TOP"
 
         return "charge:top:params:default"  
