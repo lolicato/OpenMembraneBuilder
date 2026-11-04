@@ -103,8 +103,7 @@ def render_wizard():
             go_forward(state)
             st.rerun()
         elif result == "back":
-            go_back(state)
-            st.rerun()
+            go_back(state); st.rerun()
 
     elif state.step == WizardStep.MEMBRANE:
         _render_membrane_stage(state)
@@ -156,6 +155,11 @@ def _render_membrane_stage(state) -> None:
         go_back(state)
         st.rerun()
 
+    selected_group = st.radio(
+        "What do you want to build?",
+        group_labels,
+        index=group_labels.index("Membrane only (no protein)"),  # ← default
+    )
 
 def _select_pathway(state) -> None:
     st.title("Welcome")

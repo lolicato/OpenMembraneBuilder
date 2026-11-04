@@ -80,6 +80,8 @@ def main(
 
     if "config" not in st.session_state:
         st.session_state["config"] = Config(base_folder=global_info.base_folder)
+    st.session_state["has_protein"]  = has_protein
+    st.session_state["protein_only"] = protein_only
 
     st.session_state["has_protein"] = has_protein
     st.session_state["protein_only"] = protein_only
@@ -140,6 +142,7 @@ def main(
                 if config.output_name else f"OpenMembraneBuilder-{timestamp}"
             )
             config.base_folder = os.path.join(global_info.base_folder, folder_name)
+            config.output_name  = config.base_folder
 
             with st.spinner("Building membrane system..."):
                 output_pdbs, zip_path = MembraneRunner().run(config)
@@ -357,6 +360,8 @@ def _render_membrane(global_info, ff_data, force_fields, has_protein, config, te
     render_membrane(force_fields, ff_data, global_info, config, temp_folder, protein_only=protein_only)
     return None
 
+    render_membrane(force_fields, ff_data, global_info, config, temp_folder, protein_only=protein_only)
+    return None
 
 def _render_protein_insertion(global_info, config, temp_folder, protein_only: bool = False) -> None:
     action = st.session_state.pop("_protein_action", None)

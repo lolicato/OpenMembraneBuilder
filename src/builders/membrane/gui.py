@@ -694,6 +694,7 @@ class ProteinGui:
                 0.0, boxz / 2, 0.1, _default(d, "distance_to_mem", 2.0),
             )
 
+        # Rotation
         st.sidebar.subheader("Protein Rotation")
         rx, ry, rz = 0.0, 0.0, 0.0
         randomize_rot = st.sidebar.checkbox("Randomize rotation", key=f"{ns}_randomize_rot")
@@ -729,6 +730,44 @@ class ProteinGui:
             "ry": ry,
             "rz": rz,
         }
+    @staticmethod
+    def render_multi_protein_params(
+        protein_files: dict,           
+        boxx, boxy, boxz, n_systems, protein_only
+    ) -> dict:
+        """Renders insertion params for all loaded proteins."""
+        if not protein_files:
+            return {}  
+        results = {}
+        use_distance = False
+
+        if len(protein_files) == 2:
+            st.sidebar.markdown("---")
+            use_distance = st.sidebar.checkbox(
+                "Set distance between proteins instead of X/Y positions",
+                key="use_protein_distance"
+            )
+            if use_distance:
+                st.sidebar.number_input(
+                    "Distance between proteins (nm)", 0.0, min(boxx, boxy),
+                    value=st.session_state.get("protein_distance", 1.0),
+                    step=0.1, key="protein_distance"
+                )
+
+        for pdb_name in protein_files:
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("---")
+            st.sidebar.markdown(f"## {Path(pdb_name).stem} -- Params")
+            results[pdb_name] = ProteinGui.render_insertion_params_for_protein(
+                protein_name=pdb_name,
+                boxx=boxx, boxy=boxy, boxz=boxz,
+                n_systems=n_systems,
+                protein_only=protein_only,
+                use_distance_mode=(use_distance and len(protein_files) == 2),
+                n_proteins=len(protein_files),   
+            )
+        st.session_state["insertion_params"] = results
+        return results    
 
     @staticmethod
     def render_multi_protein_params(
@@ -879,6 +918,7 @@ def render_membrane(force_fields, ff_data, global_info, config, temp_folder, pro
 
     GlobalGui.render_page(title="Membrane Builder", content_fn=content, sidebar_fn=sidebar, layout="wide")
 
+    GlobalGui.render_page(title="Membrane Builder", content_fn=content,sidebar_fn=sidebar, layout="wide")
 
 def render_protein_insertion(global_info, boxx, boxy, boxz, n_systems, config, temp_folder, protein_only: bool = False) -> dict | str | None:
     if not st.session_state.get("_protein_seeded"):
