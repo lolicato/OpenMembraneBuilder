@@ -87,8 +87,10 @@ class MembraneRunner:
         all_systems = []
 
         for template_name, entries in templates.items():
+            
             config.entries_current = entries                                          
             config.membrane_string = self.membrane_parser.create_membrane_str(config) if entries else ""
+            selected_molecule_builders = self._collect_selected_molecule_builders(config)
             suffix = f"{template_name}_" if template_name != self.global_info.default_template_name else ""
 
             params = {
@@ -97,6 +99,7 @@ class MembraneRunner:
                 "boxz":               float(config.box_z),
                 "box_type":           config.box_type,
                 "moleculeimport":     molecule_imports,
+                "molecule_builder":   selected_molecule_builders,
                 "membrane":           config.membrane_string,
                 "solvation":          config.solvation,
                 "selectedforcefield": config.selected_ff,
@@ -155,6 +158,17 @@ class MembraneRunner:
 
         return output_pdbs, zip_path
 
+
+    def _collect_selected_molecule_builders(self, config) -> list[str]:
+        index = getattr(config, "molecule_builder_index", {}) or {}
+        entries = getattr(config, "entries_current", []) or []
+
+        selected_lipids = set()
+        for entry in entries:
+            if entry and len(entry) > 0:
+                selected_lipids.add(entry[0])
+
+        return [index[name] for name in sorted(selected_lipids) if name in index]
     # ─── Protein insertion ────────────────────────────────────────────────────
 
 
@@ -371,6 +385,9 @@ class MembraneRunner:
                 "selectedforcefield": config.selected_ff,
                 "itp_input":          f"include:{self.global_info.toppar_folder_path}/{config.selected_ff}.top",
             }
+            selected_molecule_builders = self._collect_selected_molecule_builders(config)
+            if selected_molecule_builders:
+                membrane_params["molecule_builder"] = selected_molecule_builders
             run_coby_simulation(membrane_params, "", temp_dir)
             return self._measure_membrane_z(os.path.join(temp_dir, "system.gro"), config)
         except Exception as e:
@@ -702,6 +719,8 @@ def run_coby_simulation(params: dict, protein_lines: Optional[str], system_path:
 
     if params.get("moleculeimport"):
         coby_args["molecule_import"] = params["moleculeimport"]
+    if params.get("molecule_builder"):
+        coby_args["molecule_builder"] = params["molecule_builder"]
 
 
     if protein_lines:

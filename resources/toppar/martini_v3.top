@@ -9,6 +9,7 @@
 #include "martini_v3/martini_v3.0.0_phospholipids_PS_v2.itp"
 #include "martini_v3/martini_v3.0.0_phospholipids_PA_v2.itp"
 #include "martini_v3/martini_v3.0.0_phospholipids_SM_v2.itp"
+#include "martini_v3/martini_v3.0.0_phospholipids_CL_v2.itp"
 #include "martini_v3/martini_v3.0.0_sterols_v1.itp"
 
 

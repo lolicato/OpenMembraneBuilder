@@ -17,6 +17,7 @@ class Pathway:
     has_protein:  bool = False
     protein_only: bool = False
 
+
 PATHWAYS: list[Pathway] = [
     Pathway(
         label="Membrane only (no protein)",
@@ -24,53 +25,27 @@ PATHWAYS: list[Pathway] = [
         has_protein=False,
     ),
     Pathway(
-        label="Protein → Martinize → Membrane",
+        label="Protein + Membrane",
         steps=[WizardStep.MARTINIZE, WizardStep.MEMBRANE],
         has_protein=True,
     ),
     Pathway(
-        label="Protein (already CG) → Membrane",
-        steps=[WizardStep.MEMBRANE],
-        has_protein=True,
-    ),
-    Pathway(
-        label="Protein only (no membrane) - Martinize first",  
+        label="Protein only (no membrane)",
         steps=[WizardStep.MARTINIZE, WizardStep.MEMBRANE],
         has_protein=True,
         protein_only=True,
     ),
-    Pathway(
-        label="Protein only (no membrane) - Already CG",       
-        steps=[WizardStep.MEMBRANE],
-        has_protein=True,
-        protein_only=True,
-    ),
-
 ]
-PATHWAY_GROUPS = {
-    "Membrane only (no protein)": [
-        "Membrane only (no protein)",
-    ],
-    "Protein + Membrane": [
-        "Protein (already CG) → Membrane",     
-        "Protein → Martinize → Membrane",
-    ],
-    "Protein only (no membrane)": [
-        "Protein only (no membrane) - Already CG",       
-        "Protein only (no membrane) - Martinize first",
-    ],
-    
-}
 
 
 @dataclass
 class WizardState:
-    step:        WizardStep    = WizardStep.SELECT_PATHWAY
-    pathway:     Pathway|None  = None
-    step_index:  int           = 0
-    temp_folder: str           = field(default_factory=lambda: "")
-    completed:   bool          = False
-    locked:      bool          = False
+    step:                 WizardStep   = WizardStep.SELECT_PATHWAY
+    pathway:              Pathway|None = None
+    step_index:           int          = 0
+    temp_folder:          str          = field(default_factory=lambda: "")
+    completed:            bool         = False
+    locked:               bool         = False
 
     @property
     def has_protein(self) -> bool:

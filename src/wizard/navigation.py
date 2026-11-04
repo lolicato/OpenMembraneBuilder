@@ -18,6 +18,13 @@ def go_back(state: WizardState) -> None:
     if state.step_index > 0:
         state.step_index -= 1
         _sync_step(state)
+        return
+
+    # Already on the first step of the pathway -> return to the pathway selection
+    # (previously this was a silent no-op and the user was stuck).
+    state.step = WizardStep.SELECT_PATHWAY
+    state.step_index = 0
+    state.locked = False
 
 
 def _sync_step(state: WizardState) -> None:
