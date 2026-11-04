@@ -1,8 +1,11 @@
-# 🚀 OpenMembraneBuilder-v1.2.1
+# 🚀 OpenMembraneBuilder-v2.0.0
 
-![Version](https://img.shields.io/badge/version-v1.2.1-green)
+![Version](https://img.shields.io/badge/version-v2.0.0-green)
 ![Python](https://img.shields.io/badge/python-3.10-blue)
 ![Status](https://img.shields.io/badge/status-active-success)
+
+👉 Working Progress!
+
 
 🌐 **📖 Documentation:** https://lolicato.github.io/OpenMembraneBuilder  
 👉 *Full user guide, and API reference available online*
