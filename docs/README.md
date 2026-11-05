@@ -44,26 +44,31 @@ GUI → Config → Build → config.json → ZIP → CLI reuse
 
 ## 📦 Installation
 
-### Clone the repository
+OpenMembraneBuilder installs with `pip` and gives you the `omb` command.
+
+### From the compressed file
 
 ```bash
-git clone https://github.com/lolicato/OpenMembraneBuilder.git
+pip install openmembranebuilder-1.2.0.dev0.tar.gz
+```
+
+### From the repository
+
+```bash
+git clone -b development https://github.com/lolicato/OpenMembraneBuilder.git
 cd OpenMembraneBuilder
+pip install .            # or: pip install -e .   (editable, for development)
 ```
 
-### (Optional) Development branch
+### With conda
 
 ```bash
-git clone -b dev https://github.com/lolicato/OpenMembraneBuilder.git
-cd OpenMembraneBuilder
+conda env create -f environment.yml     # installs the dependencies and OpenMembraneBuilder
+conda activate OpenMembraneBuilder
 ```
 
-### Create environment
-
-```bash
-conda env create -f environment.yml
-conda activate OpenMembraneBuilder-dev
-```
+`martinize2` comes with the `vermouth` dependency. PyMOL is only needed for mutations and is
+installed separately (`conda install -c conda-forge pymol-open-source`).
 
 ---
 
@@ -72,7 +77,8 @@ conda activate OpenMembraneBuilder-dev
 ### GUI mode
 
 ```bash
-streamlit run app.py
+omb gui                      # opens the app in the browser
+omb gui --port 8502          # extra options are passed to Streamlit
 ```
 
 ---
@@ -80,8 +86,11 @@ streamlit run app.py
 ### CLI mode
 
 ```bash
-python app.py --no-gui outputs/OpenMembraneBuilder-xxxx/config.json
+omb cli outputs/OpenMembraneBuilder-xxxx/config.json
 ```
+
+Outputs are written to the folder you run `omb` from (or to `$OMB_WORKDIR` when it is set).
+`omb --version` prints the installed version.
 
 ---
 

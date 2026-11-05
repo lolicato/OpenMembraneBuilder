@@ -1,3 +1,26 @@
+# 🧾 OpenMembraneBuilder-v1.2.0-dev
+
+## Added
+
+* Installable with `pip` (`pip install openmembranebuilder-1.2.0.dev0.tar.gz`, or `pip install .`)
+* The `omb` command:
+    ```bash
+    omb gui                 # graphical app (extra options are passed to Streamlit)
+    omb cli config.json     # build from a configuration
+    omb --version
+    ```
+* Protein insertion page: system view (x–z, y–z, x–y) and box size
+* Protein names (`<name>.pdb`, `<name>.itp`, moleculetype `<name>`), copies moved together or independently
+
+## Changed
+
+* The code lives in the `openmembranebuilder` package (formerly `src/`), with the
+  force-field resources inside it, so they are installed with the package
+* Outputs, downloads and temporary uploads go to the folder `omb` is run from (or `$OMB_WORKDIR`)
+* `streamlit run app.py` and `python app.py --no-gui config.json` still work
+
+---
+
 # 🧾 OpenMembraneBuilder-v1.0.3-dev
 
 ## Added

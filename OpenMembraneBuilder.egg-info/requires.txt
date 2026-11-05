@@ -1,0 +1,15 @@
+numpy>=1.24
+scipy>=1.10
+pandas
+requests
+coby==1.0.14
+MDAnalysis>=2.7
+mdtraj
+vermouth
+streamlit>=1.40
+streamlit-molstar>=0.4
+
+[docs]
+mkdocs
+mkdocs-material
+mkdocstrings-python

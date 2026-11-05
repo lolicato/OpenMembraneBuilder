@@ -1,9 +1,9 @@
 # GUI Usage
 
-OpenMembraneBuilder can be launched using Streamlit:
+OpenMembraneBuilder's graphical app is started with:
 
 ```bash
-streamlit run app.py
+omb gui
 ```
 
 ---

@@ -34,7 +34,7 @@ plugins:
       handlers:
         python:
           paths:
-            - src
+            - .
 
 markdown_extensions:
   - admonition

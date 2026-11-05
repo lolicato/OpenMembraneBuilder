@@ -193,5 +193,5 @@ Example:
 ## 🚀 Reuse
 
 ```bash
-python app.py --no-gui outputs/OpenMembraneBuilder-xxxx/config.json
+omb cli outputs/OpenMembraneBuilder-xxxx/config.json
 ```

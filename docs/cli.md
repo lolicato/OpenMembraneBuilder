@@ -3,7 +3,7 @@
 OpenMembraneBuilder can run without the GUI using a saved JSON configuration.
 
 ```bash
-python app.py --no-gui config.json
+omb cli config.json
 ```
 
 ---
@@ -24,7 +24,7 @@ The CLI mode is useful for:
 ### 1. Create a configuration via GUI
 
 ```bash
-streamlit run app.py
+omb gui
 ```
 
 Build your system once. This generates a project folder with a `config.json`.
@@ -34,7 +34,7 @@ Build your system once. This generates a project folder with a `config.json`.
 ### 2. Re-run using CLI
 
 ```bash
-python app.py --no-gui outputs/OpenMembraneBuilder-xxxx/config.json
+omb cli outputs/OpenMembraneBuilder-xxxx/config.json
 ```
 
 ---
