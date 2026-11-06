@@ -1,12 +1,16 @@
-"""Schematic system view for the protein insertion page.
+"""The schematic system view of the protein insertion page.
 
-Draws the box, the membrane and the proteins as SVG, projected on x–z, y–z or x–y, with
-every protein drawn as the outline (convex hull) of its own beads, placed and rotated the way
-COBY will place it: centred on its centre of geometry, rotated by Rx·Ry·Rz (COBY's
-convention), then moved to (cx, cy, cz) measured from the box centre.
+It draws the box, the membrane and every protein as a simple picture (SVG), seen from the
+side (x–z or y–z) or from the top (x–y). Each protein is drawn as the outline of its own
+beads, placed and rotated exactly the way COBY will place it:
 
-The membrane is drawn with a typical Martini bilayer thickness, so "Height above Membrane"
-is an approximation here; the build measures the real membrane surface.
+1. the protein is centred on the middle of its beads (centre of geometry),
+2. it is rotated by the angles you entered (first about x, then y, then z, in the protein's
+   own frame – COBY's convention),
+3. it is moved to the position you entered, measured from the centre of the box.
+
+The membrane is drawn with a typical Martini thickness. "Height above Membrane" is therefore
+only approximate in the picture; the build measures the real membrane surface.
 """
 
 from __future__ import annotations
@@ -25,12 +29,33 @@ PHOSPHATE = 2.0
 
 
 def coby_rotation(rx: float, ry: float, rz: float) -> np.ndarray:
-    """Rotation matrix used by COBY for rx/ry/rz (degrees): Rx·Ry·Rz (scipy "XYZ")."""
+    """The rotation COBY applies for the angles rx, ry, rz.
+
+    Args:
+        rx: Rotation about x, in degrees.
+        ry: Rotation about y, in degrees.
+        rz: Rotation about z, in degrees.
+
+    Returns:
+        A 3 × 3 rotation matrix (Rx·Ry·Rz).
+    """
     return R.from_euler("XYZ", [rx, ry, rz], degrees=True).as_matrix()
 
 
 def box_extent(box_type: str, bx: float, by: float, bz: float) -> tuple[float, float, float]:
-    """Extent of the box along x, y, z in nm (hexagonal boxes: their bounding box)."""
+    """The size of the box along x, y and z, in nm.
+
+    Hexagonal boxes are not rectangular; the picture uses the rectangle around them.
+
+    Args:
+        box_type: `"rectangular"`, `"hexagonal"` or `"skewed_hexagonal"`.
+        bx: Box length x, in nm.
+        by: Box length y, in nm (rectangular boxes only).
+        bz: Box height z, in nm (not used by skewed hexagonal boxes).
+
+    Returns:
+        `(x, y, z)` in nm.
+    """
     if box_type == "hexagonal":
         return bx, bx * math.sqrt(3) / 2, bz
     if box_type == "skewed_hexagonal":
@@ -39,37 +64,95 @@ def box_extent(box_type: str, bx: float, by: float, bz: float) -> tuple[float, f
 
 
 def place(coords_A: np.ndarray, cx: float, cy: float, cz: float, rx: float, ry: float, rz: float) -> np.ndarray:
-    """Bead positions in nm from the box centre, as COBY places the protein."""
+    """Bead positions of a protein after COBY places it.
+
+    Args:
+        coords_A: Bead positions as read from the file, in Å.
+        cx: Position along x, in nm from the box centre.
+        cy: Position along y, in nm from the box centre.
+        cz: Position along z, in nm from the box centre.
+        rx: Rotation about x, in degrees.
+        ry: Rotation about y, in degrees.
+        rz: Rotation about z, in degrees.
+
+    Returns:
+        Bead positions in nm, measured from the box centre.
+    """
     c = (coords_A - coords_A.mean(0)) @ coby_rotation(rx, ry, rz).T / 10.0
     return c + np.array([cx, cy, cz])
 
 
 def height_above_membrane_cz(coords_A, rx, ry, rz, distance_to_mem: float) -> float:
-    """cz for "Height above Membrane": lowest bead `distance_to_mem` nm above the (typical) membrane."""
+    """The z position that puts the lowest bead a given distance above the membrane.
+
+    Uses the typical membrane thickness of the picture (`MEMBRANE_HALF`).
+
+    Args:
+        coords_A: Bead positions as read from the file, in Å.
+        rx: Rotation about x, in degrees.
+        ry: Rotation about y, in degrees.
+        rz: Rotation about z, in degrees.
+        distance_to_mem: Gap between membrane surface and protein, in nm.
+
+    Returns:
+        The z position of the protein centre, in nm from the box centre.
+    """
     c = (coords_A - coords_A.mean(0)) @ coby_rotation(rx, ry, rz).T / 10.0
     return MEMBRANE_HALF + distance_to_mem - c[:, 2].min()
 
 
 def half_extent_x(coords_A, rx, ry, rz) -> float:
-    """Half of the protein's x span after rotation (nm), as used for the distance mode."""
+    """Half of the width of the rotated protein along x, in nm.
+
+    Used when two proteins are placed by the gap between them.
+
+    Args:
+        coords_A: Bead positions as read from the file, in Å.
+        rx: Rotation about x, in degrees.
+        ry: Rotation about y, in degrees.
+        rz: Rotation about z, in degrees.
+
+    Returns:
+        Half the x width, in nm.
+    """
     c = (coords_A - coords_A.mean(0)) @ coby_rotation(rx, ry, rz).T / 10.0
     return (c[:, 0].max() - c[:, 0].min()) / 2.0
 
 
 def make_grid(boxx: float, boxy: float, n_copies: int) -> list[tuple[float, float]]:
-    """The grid of copy positions of the runner (copies take random cells of it)."""
+    """The grid on which copies "moving together" are placed.
+
+    The box is divided into n × n equal cells (n = smallest whole number with
+    n² ≥ number of copies); the copies go into the centres of randomly chosen cells.
+
+    Args:
+        boxx: Box length x, in nm.
+        boxy: Box length y, in nm.
+        n_copies: Number of copies.
+
+    Returns:
+        The cell centres `(x, y)` in nm from the box centre.
+    """
     n = math.ceil(math.sqrt(n_copies))
     dx, dy = boxx / n, boxy / n
     return [((i + 0.5) * dx - boxx / 2, (j + 0.5) * dy - boxy / 2) for i in range(n) for j in range(n)]
 
 
 def _hull2d(pts: np.ndarray) -> np.ndarray:
-    """Convex hull (monotone chain) of 2D points, in order."""
+    """The outline (convex hull) of a set of points in the plane, in drawing order.
+
+    Args:
+        pts: Points `(h, v)`.
+
+    Returns:
+        The corner points of the outline.
+    """
     pts = np.unique(np.round(np.asarray(pts, float), 3), axis=0)
     if len(pts) <= 2:
         return pts
 
     def cross(o, a, b):
+        """Which side of the line o→a the point b lies on (positive: left)."""
         return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
     lower, upper = [], []
@@ -85,15 +168,18 @@ def _hull2d(pts: np.ndarray) -> np.ndarray:
 
 
 def system_view_svg(extent: tuple[float, float, float], proteins: list[dict], membrane: bool, view: str = "x–z") -> str:
-    """SVG of the system seen along one axis.
+    """The picture of the system, seen along one axis, as SVG text.
 
     Args:
-        extent: Box size (x, y, z) in nm.
-        proteins: One dict per protein: ``name``, ``copies`` (list of (n, 3) bead arrays in nm
-            from the box centre) and ``dashed`` (True when the position or rotation is random,
-            i.e. what is drawn is only one possibility).
-        membrane: Draw the bilayer at the box centre.
-        view: ``"x–z"``, ``"y–z"`` or ``"x–y"``.
+        extent: Box size `(x, y, z)` in nm.
+        proteins: One entry per protein: `name`, `copies` (bead positions of every copy,
+            in nm from the box centre) and `dashed` (`True` when the position or rotation
+            is random, so the picture shows only one possibility).
+        membrane: Draw the membrane in the middle of the box.
+        view: `"x–z"`, `"y–z"` or `"x–y"`.
+
+    Returns:
+        SVG text that can be put straight into the page.
     """
     ha, va = VIEWS.get(view, (0, 2))
     bh, bv = extent[ha], extent[va]

@@ -169,6 +169,7 @@ python -m build          # dist/openmembranebuilder-2.0.0.tar.gz and .whl
 ```bash
 omb gui                      # opens the app in the browser
 omb gui --port 8502          # extra options are passed to Streamlit
+omb gui --no-run             # hide the "Run simulations" button (e.g. on a web server)
 ```
 
 ---

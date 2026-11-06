@@ -1,3 +1,15 @@
+"""The widgets of the protein preparation: what you see and fill in.
+
+1. **Protein input** (`render_input`): one panel per protein with its name and its source –
+   coarse-grained files, an uploaded atomistic PDB, or a PDB code to download from RCSB.
+2. **Configure** (`render_configure`): chains and residue ranges, an optional mutation, and
+   the martinize2 options (force field, secondary structure, elastic network, restraints,
+   disulfide bridges).
+
+Buttons leave a note in the session memory ("next", "back", "run", …); `page.py` reads it and
+does the work.
+"""
+
 import os
 from pathlib import Path
 from typing import Dict, Any, List
@@ -9,19 +21,14 @@ from openmembranebuilder.builders.martinize.config import Config, ProteinConfig
 # ─── Page 1: Protein Input ────────────────────────────────────────────────────
 
 def render_input(config: Config, temp_folder: str) -> None:
-    """Render the protein input page.
+    """Draw the protein input page.
 
-    Shows one panel per protein in config.proteins.  Each panel has its own
-    header ("Protein N"), a delete button, mode selection, file upload / RCSB
-    fetch and a clean-structure checkbox.
+    Shows one panel per protein (name, delete button, source, upload or download, clean-up),
+    an "Add a protein" button and Back / Next.
 
-    All widget keys are namespaced with ``_p{i}`` so panels don't collide.
-
-    Sets the following session_state signals:
-    - ``_martinize_input_action``  : "next" | "back"
-    - ``_martinize_add_protein``   : True  (add a blank protein)
-    - ``_martinize_delete_protein``: int   (index of protein to delete)
-    - ``_martinize_fetch_requested``: int  (index of protein to fetch PDB for)
+    Args:
+        config: The settings of all proteins.
+        temp_folder: Folder where uploads are stored.
     """
     st.title("🧬 Protein Structure Input")
     st.caption("Provide the protein structures to be coarse-grained with martinize2.")
@@ -57,7 +64,14 @@ def _render_protein_panel(
     n_proteins: int,
     temp_dir: Path,
 ) -> None:
-    """Render the input panel for the i-th protein (0-based index)."""
+    """Draw the panel of one protein: name, delete button and its source.
+
+    Args:
+        i: Position of the protein (0 for the first).
+        pconfig: The protein's settings.
+        n_proteins: Number of proteins.
+        temp_dir: Folder where uploads are stored.
+    """
     with st.container(border=True):
         # ── Header row ────────────────────────────────────────────────────────
         hdr_left, hdr_right = st.columns([4, 1])
@@ -106,6 +120,16 @@ def _render_protein_panel(
 
 
 def _render_upload_cg_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> None:
+    """Upload fields for an already coarse-grained protein (structure + `.itp`).
+
+    You also say which Martini generation the files are made for, so a mismatch with the
+    membrane can be reported.
+
+    Args:
+        i: Position of the protein.
+        pconfig: The protein's settings.
+        temp_dir: Folder where uploads are stored.
+    """
     st.subheader("Upload Coarse-Grained Protein Files")
     col1, col2 = st.columns(2)
 
@@ -150,6 +174,16 @@ def _render_upload_cg_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> N
 
 
 def _render_atomistic_panel(i: int, pconfig: ProteinConfig, temp_dir: Path) -> None:
+    """Source of an atomistic structure: upload a PDB file or download one from RCSB.
+
+    Loading a different structure resets the chain and mutation choices of this protein.
+    The clean-up option keeps only the protein.
+
+    Args:
+        i: Position of the protein.
+        pconfig: The protein's settings.
+        temp_dir: Folder where uploads are stored.
+    """
     st.subheader("Atomistic Structure Input")
 
     source_key = f"atomistic_source_p{i}"
@@ -220,13 +254,18 @@ def render_configure(
     chains: List[str],
     summaries: Dict[str, Any],
 ) -> None:
-    """Render the configuration page for a single protein.
+    """Draw the configure page of one protein.
 
-    Pure presentation only.  Sets ``_martinize_configure_action`` to
-    "back", "run", or "dssp_preview" on button presses.
+    - **Chains**: tick the chains to keep and, per chain, the residue range.
+    - **Mutation**: chain, residue (filterable by amino acid) and the new amino acid.
+    - **martinize2 options**: force field, secondary structure (with a DSSP preview),
+      elastic network, position restraints, disulfide bridges, extra options.
 
-    All widget keys are namespaced with ``_p{protein_idx}`` so state is
-    independent for each protein.
+    Args:
+        pconfig: The protein's settings.
+        protein_idx: Position of the protein.
+        chains: The chains found in the structure.
+        summaries: Per chain: first and last residue and number of residues.
     """
     p = protein_idx  # shorthand for key namespacing
 
@@ -486,7 +525,14 @@ def render_configure(
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _reset_downstream_state(protein_idx: int) -> None:
-    """Clear all session state that depends on the loaded structure for protein i."""
+    """Forget everything that depends on the loaded structure of one protein.
+
+    Called when a new structure is uploaded or downloaded: chain choices, ranges,
+    mutation, DSSP preview and residue lists no longer apply.
+
+    Args:
+        protein_idx: Position of the protein.
+    """
     p = protein_idx
     for key in [
         f"cleaned_path_p{p}", f"fetched_pdb_success_p{p}",

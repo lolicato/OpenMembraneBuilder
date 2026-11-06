@@ -1,3 +1,16 @@
+"""The wizard: the page that guides you from the welcome screen to the finished systems.
+
+Depending on the workflow chosen on the welcome page, the wizard shows
+
+1. the **protein preparation** (only with proteins),
+2. the **membrane builder** (composition, box, solvation, protein placement, preview),
+3. the **results** (download and 3D view).
+
+When the build is done, the settings of all steps are written to `config.json` in the output
+folder (and added to the zip archive), so the same systems can be rebuilt later with
+`omb cli config.json`.
+"""
+
 import os
 import json
 import random
@@ -16,6 +29,14 @@ from openmembranebuilder.core.global_info import GlobalInfo
 # ─── Temp folder handling ─────────────────────────────────────────────────────
 
 def _ensure_temp_folder(state) -> str:
+    """The folder for this session's uploads, created on first use.
+
+    Args:
+        state: The wizard state, which remembers the folder.
+
+    Returns:
+        The folder path (`./temp-uploads_<date>_<time>-<random number>`).
+    """
     if not state.temp_folder:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         rand = random.randint(100000, 999999)
@@ -24,6 +45,13 @@ def _ensure_temp_folder(state) -> str:
 
 
 def _cleanup_temp_folder(state) -> None:
+    """Delete this session's upload folder once the build is finished.
+
+    A folder that cannot be deleted is reported in the terminal and otherwise ignored.
+
+    Args:
+        state: The wizard state, which remembers the folder.
+    """
     if state.temp_folder and os.path.exists(state.temp_folder):
         try:
             shutil.rmtree(state.temp_folder)
@@ -35,6 +63,14 @@ def _cleanup_temp_folder(state) -> None:
 # ─── Config export ────────────────────────────────────────────────────────────
 
 def _json_fallback(obj):
+    """Turn values that JSON cannot store directly (objects, sets, …) into storable ones.
+
+    Args:
+        obj: The value that could not be written.
+
+    Returns:
+        A dictionary, list or text version of the value.
+    """
     if hasattr(obj, "__dict__"):
         return vars(obj)
     if hasattr(obj, "__iter__"):
@@ -62,6 +98,19 @@ _ORDER = ["martinize", "membrane"]
 
 
 def _save_full_config(config_map: dict, output_folder: str) -> str:
+    """Write the settings of all wizard steps to `<output>/config.json`.
+
+    Values that only matter during a session (temporary folders, intermediate text) are
+    left out, so the file describes the build and nothing else.
+
+    Args:
+        config_map: The finished settings of each step, e.g.
+            `{"martinize": ..., "membrane": ...}`.
+        output_folder: The output folder of the build.
+
+    Returns:
+        The path of the written `config.json`.
+    """
     combined = OrderedDict()
     for key in _ORDER:
         if key not in config_map:
@@ -83,6 +132,11 @@ def _save_full_config(config_map: dict, output_folder: str) -> str:
 # ─── Main render ──────────────────────────────────────────────────────────────
 
 def render_wizard():
+    """Draw the page that belongs to the current wizard step.
+
+    This is called on every redraw of the browser page (`app.py`). Once a workflow has
+    been started, the sidebar also shows a "Change workflow" button that starts over.
+    """
     state = get_state()
 
     if state.locked:
@@ -124,10 +178,19 @@ def render_wizard():
             st.session_state.get("output_pdbs", []),
             st.session_state.get("zip_path"),
             box_nm=box_nm,
+            output_folder=getattr(membrane_cfg, "base_folder", None),
         )
 
 
 def _render_membrane_stage(state) -> None:
+    """Show the membrane builder and finish the build when it reports "done".
+
+    After the build, the full configuration is saved and added to the zip archive, the
+    upload folder is removed and the wizard moves on to the results page.
+
+    Args:
+        state: The wizard state.
+    """
     completed = st.session_state.setdefault("completed_configs", {})
 
     from openmembranebuilder.builders.membrane.page import main as membrane_main
@@ -158,6 +221,8 @@ def _render_membrane_stage(state) -> None:
         go_back(state)
         st.rerun()
 
+    # Note: never reached – the membrane page ends the page drawing itself (st.stop),
+    # and `group_labels` does not exist. Left over from an earlier version.
     selected_group = st.radio(
         "What do you want to build?",
         group_labels,
@@ -165,6 +230,13 @@ def _render_membrane_stage(state) -> None:
     )
 
 def _select_pathway(state) -> None:
+    """The welcome page: choose what to build and press "Start".
+
+    Starting clears the results of an earlier run in the same browser session.
+
+    Args:
+        state: The wizard state.
+    """
     st.title("Welcome")
     st.subheader("Choose your workflow")
 

@@ -1,3 +1,14 @@
+"""The protein preparation's page logic: which page to show and what happens on each click.
+
+Three pages, run for one protein after the other:
+
+1. **Input** – all proteins with name and source.
+2. **Configure** – chains, mutation and martinize2 options (only for atomistic structures).
+3. **Results** – martinize2 is run (or the uploaded files are checked) and the outcome shown.
+
+When the last protein is done, the finished files are handed to the membrane builder.
+"""
+
 import os
 import re
 import shutil
@@ -13,6 +24,14 @@ from openmembranebuilder.builders.martinize.gui import render_input, render_conf
 # ─── Step enum ────────────────────────────────────────────────────────────────
 
 class MartinizeStep(Enum):
+    """The pages of the protein preparation.
+
+    Attributes:
+        INPUT: Names and sources of all proteins.
+        CONFIGURE: Chains, mutation and martinize2 options of one protein.
+        RESULTS: Running martinize2 for one protein and showing the outcome.
+    """
+
     INPUT     = auto()   # Page 1: list of proteins, each with source/upload
     CONFIGURE = auto()   # Page 2: chain selection, mutations, martinize options
     RESULTS   = auto()   # Page 3: running the preprocessor + showing results
@@ -21,34 +40,46 @@ class MartinizeStep(Enum):
 # ─── Step helpers ─────────────────────────────────────────────────────────────
 
 def _get_step() -> MartinizeStep:
+    """The page of the protein preparation shown at the moment (the input page when new)."""
     if "martinize_step" not in st.session_state:
         st.session_state.martinize_step = MartinizeStep.INPUT
     return st.session_state.martinize_step
 
 
 def _set_step(step: MartinizeStep) -> None:
+    """Go to another page of the protein preparation.
+
+    Args:
+        step: The page to show next.
+    """
     st.session_state.martinize_step = step
 
 
 def _get_protein_idx() -> int:
-    """Index (0-based) of the protein currently being configured / run."""
+    """Position of the protein being configured or run at the moment (0 for the first)."""
     return st.session_state.get("martinize_protein_idx", 0)
 
 
 def _set_protein_idx(idx: int) -> None:
+    """Choose the protein to configure or run next.
+
+    Args:
+        idx: Its position (0 for the first).
+    """
     st.session_state["martinize_protein_idx"] = idx
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main(temp_folder: str) -> tuple[str | None, Config | None]:
-    """Wizard entry point called by src/wizard/page.py.
+    """Show the protein preparation; called by the wizard on every redraw.
 
-    Returns
-    -------
-    (result, config)
-        result : "done" | "back" | None
-        config : Config with populated output paths, or None
+    Args:
+        temp_folder: The session folder for uploads and work files.
+
+    Returns:
+        `("done", config)` when all proteins are ready, `("back", None)` when the user
+        leaves backwards, otherwise `(None, None)`.
     """
     runner = MartinizeRunner()
 
@@ -86,6 +117,20 @@ def _render_input_step(
 ) -> tuple[str | None, Config | None]:
 
     # ── Handle add / delete / fetch signals (set by gui.py before st.rerun) ──
+    """The input page: add, delete and download proteins, then check and continue.
+
+    On "Next" every protein must have a valid, unique name and its files. Proteins from
+    an atomistic structure continue to the configure page; coarse-grained uploads go
+    straight to the results page.
+
+    Args:
+        config: The settings of all proteins.
+        runner: The worker that downloads, cleans and converts structures.
+        temp_folder: The session folder.
+
+    Returns:
+        `("back", None)` when leaving backwards, otherwise `(None, None)`.
+    """
     if st.session_state.pop("_martinize_add_protein", False):
         config.proteins.append(ProteinConfig())
         config.n_proteins = len(config.proteins)
@@ -172,7 +217,17 @@ def _render_configure_step(
     protein_idx: int,
     temp_folder: str,
 ) -> tuple[str | None, Config | None]:
+    """The configure page of one protein: DSSP preview, Back, or check and run.
 
+    Args:
+        config: The settings of all proteins.
+        runner: The worker.
+        protein_idx: Position of the protein.
+        temp_folder: The session folder.
+
+    Returns:
+        Always `(None, None)`; the page changes by itself.
+    """
     pconfig = config.proteins[protein_idx]
     p = protein_idx
     action = st.session_state.pop("_martinize_configure_action", None)
@@ -219,6 +274,21 @@ def _render_results_step(
     protein_idx: int,
     temp_folder: str,
 ) -> tuple[str | None, Config | None]:
+    """Run one protein and show the outcome.
+
+    The work runs once per visit; coming back to the page shows the stored result. On
+    success you continue to the next protein or, after the last one, to the membrane
+    builder. On failure you can go back and fix the settings, or drop the protein.
+
+    Args:
+        config: The settings of all proteins.
+        runner: The worker.
+        protein_idx: Position of the protein.
+        temp_folder: The session folder.
+
+    Returns:
+        `("done", config)` after the last protein, otherwise `(None, None)`.
+    """
     p = protein_idx
     pconfig = config.proteins[p]
     is_last = (p == len(config.proteins) - 1)
@@ -341,13 +411,24 @@ def _render_results_step(
 # ─── Output bookkeeping ───────────────────────────────────────────────────────
 
 def _finish(config: Config) -> tuple[str, Config]:
-    """Hand the finished proteins to the membrane builder (single source of truth)."""
+    """Hand the finished proteins to the membrane builder.
+
+    Args:
+        config: The settings of all proteins.
+
+    Returns:
+        `("done", config)`.
+    """
     st.session_state["protein_files"] = config.protein_files()
     return "done", config
 
 
 def _invalidate_outputs(indices=None) -> None:
-    """Forget stored results, so the affected proteins are re-run when visited."""
+    """Forget stored results, so the proteins are run again when visited.
+
+    Args:
+        indices: Positions of the proteins to forget; all proteins when empty.
+    """
     if indices is None:
         keys = [k for k in st.session_state.keys() if k.startswith("martinize_output_p")]
     else:
@@ -357,11 +438,14 @@ def _invalidate_outputs(indices=None) -> None:
 
 
 def reset_outputs(temp_folder: str) -> None:
-    """Called by the wizard when the user moves BACK into this builder.
+    """Remove everything the protein preparation produced, keeping inputs and settings.
 
-    Deletes everything the builder produced (work folders, result paths, protein list
-    handed to the membrane builder) and returns to the first page. Uploaded inputs and
-    all settings are kept. The proteins are created again when the user moves forward.
+    Used when the user goes back into the protein preparation from a later step: work
+    folders and results are deleted and the input page is shown again. The proteins are
+    prepared again on the way forward.
+
+    Args:
+        temp_folder: The session folder.
     """
     shutil.rmtree(os.path.join(temp_folder, "martinize"), ignore_errors=True)
 
@@ -389,7 +473,17 @@ def _harvest_input_to_pconfig(
     runner: MartinizeRunner,
     temp_folder: str,
 ) -> None:
-    """Read session_state widget values for protein i into its ProteinConfig."""
+    """Copy the values of one protein's input panel into its settings.
+
+    For atomistic structures with clean-up switched on, the cleaned structure is made
+    here, so the configure page can show its chains.
+
+    Args:
+        pconfig: The protein's settings, changed in place.
+        i: Position of the protein.
+        runner: The worker (for the clean-up).
+        temp_folder: The session folder.
+    """
     pconfig.name               = str(st.session_state.get(f"protein_name_p{i}", pconfig.name)).strip()
     pconfig.protein_input_mode = st.session_state.get(f"protein_input_mode_p{i}", pconfig.protein_input_mode)
     pconfig.cg_martini_version = st.session_state.get(f"cg_version_p{i}",         pconfig.cg_martini_version)
@@ -420,7 +514,12 @@ def _harvest_input_to_pconfig(
 
 
 def _harvest_configure_to_pconfig(pconfig: ProteinConfig, p: int) -> None:
-    """Read session_state widget values for protein p into its ProteinConfig."""
+    """Copy the values of the configure page into one protein's settings.
+
+    Args:
+        pconfig: The protein's settings, changed in place.
+        p: Position of the protein.
+    """
     pconfig.selected_chains          = st.session_state.get(f"selected_chains_p{p}",          pconfig.selected_chains)
     pconfig.chain_ranges             = st.session_state.get(f"chain_ranges_p{p}",             pconfig.chain_ranges)
     pconfig.do_mutation              = st.session_state.get(f"do_mutation_p{p}",              pconfig.do_mutation)
@@ -442,6 +541,15 @@ def _harvest_configure_to_pconfig(pconfig: ProteinConfig, p: int) -> None:
 # ─── Validation helpers ───────────────────────────────────────────────────────
 
 def _validate_input(pconfig: ProteinConfig, i: int) -> list[str]:
+    """Check one protein's input before continuing.
+
+    Args:
+        pconfig: The protein's settings.
+        i: Position of the protein.
+
+    Returns:
+        The problems found (empty when all is well).
+    """
     errors: list[str] = []
     if not pconfig.name:
         errors.append("Please give the protein a name (its files become <name>.pdb and <name>.itp).")
@@ -459,6 +567,16 @@ def _validate_input(pconfig: ProteinConfig, i: int) -> list[str]:
 
 
 def _validate_configure(pconfig: ProteinConfig) -> list[str]:
+    """Check one protein's configuration before running martinize2.
+
+    At least one chain is needed; a mutation needs chain, residue and new amino acid.
+
+    Args:
+        pconfig: The protein's settings.
+
+    Returns:
+        The problems found (empty when all is well).
+    """
     errors: list[str] = []
     if pconfig.protein_input_mode == "martinize":
         if not pconfig.selected_chains:
@@ -476,7 +594,13 @@ def _validate_configure(pconfig: ProteinConfig) -> list[str]:
 # ─── Chain-data loader ────────────────────────────────────────────────────────
 
 def _load_chain_data(pconfig: ProteinConfig, protein_idx: int, runner: MartinizeRunner) -> None:
-    """Pre-load chain list, summaries, and residue lists for protein protein_idx."""
+    """Read the chains, their residue ranges and residue lists of one protein's structure.
+
+    Args:
+        pconfig: The protein's settings.
+        protein_idx: Position of the protein.
+        runner: The worker that reads the structure.
+    """
     p = protein_idx
     active = st.session_state.get(f"active_struct_p{p}", "")
     if not active or not os.path.exists(active):

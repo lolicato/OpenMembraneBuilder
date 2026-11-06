@@ -1,3 +1,18 @@
+"""The protein preparation's work: download, clean, select, mutate, coarse-grain, name.
+
+For an atomistic structure, `MartinizeRunner.run_one_protein` does, in this order:
+
+1. download it from RCSB (or take the uploaded file),
+2. keep only the protein (clean-up, optional),
+3. keep the chosen chains and residue ranges,
+4. mutate one residue with PyMOL (optional),
+5. run martinize2 (with the secondary structure from DSSP, an elastic network, … as chosen),
+6. copy the results to `cg/<name>.pdb` and `cg/<name>.itp`.
+
+For already coarse-grained files only the last step is done, after a basic check of the
+files. A log, the settings and a zip of each protein's work folder are written as well.
+"""
+
 import os
 import shutil
 import subprocess
@@ -11,11 +26,30 @@ import mdtraj as md
 from openmembranebuilder.builders.martinize.config import Config, ProteinConfig
 
 class MartinizeRunner:
+    """Prepares coarse-grained proteins."""
+
     def __init__(self, default_output_dir: str = "temp"):
+        """Prepare the worker.
+
+        Args:
+            default_output_dir: A default work folder (created when missing).
+        """
         self.default_output_dir = default_output_dir
         os.makedirs(self.default_output_dir, exist_ok=True)
 
     def fetch_pdb(self, pdb_id: str, output_dir: str) -> str:
+        """Download a structure from the RCSB PDB.
+
+        Args:
+            pdb_id: Four-character PDB code, e.g. `1UBQ`.
+            output_dir: Where to save `<PDBID>.pdb`.
+
+        Returns:
+            The downloaded file.
+
+        Raises:
+            ValueError: The code could not be downloaded.
+        """
         pdb_id = pdb_id.upper().strip()
         url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
         response = requests.get(url)
@@ -27,6 +61,19 @@ class MartinizeRunner:
         return output_path
 
     def clean_protein(self, input_path: str, output_dir: str, protein_index: int) -> str:
+        """Keep only the protein: remove water, ions, ligands and anything else.
+
+        Args:
+            input_path: The structure.
+            output_dir: Where to save the cleaned structure.
+            protein_index: Position of the protein (part of the file name).
+
+        Returns:
+            The cleaned structure.
+
+        Raises:
+            ValueError: The structure contains no protein.
+        """
         u = mda.Universe(input_path)
         protein = u.select_atoms("protein")
         if len(protein) == 0:
@@ -36,6 +83,14 @@ class MartinizeRunner:
         return output_path
 
     def get_chains(self, input_path: str) -> List[str]:
+        """The chain names of a structure (or segment names when chains are missing).
+
+        Args:
+            input_path: The structure.
+
+        Returns:
+            Chain names, sorted.
+        """
         u = mda.Universe(input_path)
         chains = sorted(set(u.atoms.chainIDs))
         if not chains or chains == [""]:
@@ -44,6 +99,14 @@ class MartinizeRunner:
         return chains
 
     def get_chain_summary(self, input_path: str) -> Dict[str, Any]:
+        """First residue, last residue and number of residues of every chain.
+
+        Args:
+            input_path: The structure.
+
+        Returns:
+            `{chain: {first_resname, first_resid, last_resname, last_resid, n_residues}}`.
+        """
         u = mda.Universe(input_path)
         summaries = {}
         for chain in self.get_chains(input_path):
@@ -65,6 +128,19 @@ class MartinizeRunner:
         return summaries
 
     def select_chains(self, input_path: str, selected_chains: List[str], output_dir: str) -> str:
+        """Keep only some chains of a structure.
+
+        Args:
+            input_path: The structure.
+            selected_chains: The chains to keep.
+            output_dir: Where to save the result.
+
+        Returns:
+            The new structure.
+
+        Raises:
+            ValueError: None of the chains was found.
+        """
         u = mda.Universe(input_path)
         query = " or ".join([f"chainID {c}" for c in selected_chains])
         atoms = u.select_atoms(query)
@@ -79,14 +155,20 @@ class MartinizeRunner:
 
     def select_chains_with_ranges(self, input_path: str, selected_chains: List[str],
                                    chain_ranges: Dict[str, List[int]], output_dir: str) -> str:
-        """Select chains and optionally trim each to a residue range.
+        """Keep only some chains, each optionally cut to a residue range.
 
-        Parameters
-        ----------
-        chain_ranges : dict
-            Mapping of chain ID -> [first_resid, last_resid].
-            If a chain is absent from the dict or the list is empty,
-            the entire chain is kept.
+        Args:
+            input_path: The structure.
+            selected_chains: The chains to keep.
+            chain_ranges: `{chain: [first residue, last residue]}`; a chain without a range
+                is kept whole.
+            output_dir: Where to save the result.
+
+        Returns:
+            The new structure.
+
+        Raises:
+            ValueError: Nothing matched the selection.
         """
         u = mda.Universe(input_path)
         parts = []
@@ -114,6 +196,15 @@ class MartinizeRunner:
         return output_path
 
     def get_residues_for_chain(self, input_path: str, chain_id: str) -> List[Dict[str, Any]]:
+        """The residues of one chain, for the mutation choice.
+
+        Args:
+            input_path: The structure.
+            chain_id: The chain.
+
+        Returns:
+            One entry per residue: `resid`, `resname`, `label` (e.g. `LYS48`).
+        """
         u = mda.Universe(input_path)
         atoms = u.select_atoms(f"protein and chainID {chain_id}")
         if len(atoms) == 0:
@@ -128,6 +219,23 @@ class MartinizeRunner:
         return residues
 
     def mutate_with_pymol(self, input_path: str, chain_id: str, residue_number: int, target_residue: str, output_dir: str) -> str:
+        """Replace one amino acid with PyMOL's mutagenesis tool.
+
+        PyMOL must be installed and available as the `pymol` command.
+
+        Args:
+            input_path: The structure.
+            chain_id: Chain of the residue.
+            residue_number: Residue number.
+            target_residue: New amino acid, three-letter code (e.g. `ALA`).
+            output_dir: Where to save the mutated structure.
+
+        Returns:
+            The mutated structure.
+
+        Raises:
+            RuntimeError: PyMOL failed or wrote no structure.
+        """
         input_path = os.path.abspath(input_path)
         output_dir = os.path.abspath(output_dir)
         output_path = os.path.join(output_dir, "protein_mutated.pdb")
@@ -161,6 +269,17 @@ quit
         return output_path
 
     def get_secondary_structure_mdtraj(self, input_path: str) -> str:
+        """The secondary structure of a protein, calculated with DSSP (MDTraj).
+
+        One letter per residue: H (helix), E (strand), C (coil). When DSSP fails, every
+        residue is taken as coil.
+
+        Args:
+            input_path: The structure.
+
+        Returns:
+            The secondary-structure text.
+        """
         try:
             traj = md.load(input_path)
             ss = md.compute_dssp(traj, simplified=True)[0]
@@ -173,6 +292,18 @@ quit
             return "C" * n_res
 
     def validate_cg_files(self, pdb_path: str, itp_path: str) -> Tuple[bool, str]:
+        """Basic check of uploaded coarse-grained files.
+
+        Both files must exist and not be empty, and the `.itp` must contain a
+        `[ moleculetype ]` section.
+
+        Args:
+            pdb_path: The coarse-grained structure.
+            itp_path: The coarse-grained topology.
+
+        Returns:
+            `(ok, message)`.
+        """
         if not pdb_path or not os.path.exists(pdb_path):
             return False, "Coarse-grained structure file does not exist."
         if not itp_path or not os.path.exists(itp_path):
@@ -196,6 +327,21 @@ quit
         return True, "Validation successful."
 
     def run_martinize(self, pconfig: ProteinConfig, input_path: str, protein_index: int, output_dir: str) -> Tuple[str, str, str, str, str]:
+        """Coarse-grain an atomistic structure with martinize2.
+
+        Args:
+            pconfig: The protein's settings (force field, secondary structure, elastic
+                network, restraints, disulfide bridges, extra options).
+            input_path: The prepared atomistic structure.
+            protein_index: Position of the protein (part of the file names).
+            output_dir: The protein's work folder.
+
+        Returns:
+            `(cg structure, top file, itp file, command, martinize2 output)`.
+
+        Raises:
+            RuntimeError: martinize2 failed or wrote no structure.
+        """
         input_path = os.path.abspath(input_path)
         output_dir = os.path.abspath(output_dir)
         output_cg = os.path.join(output_dir, f"protein_cg_p{protein_index}.pdb")
@@ -254,6 +400,14 @@ quit
         return output_cg, output_top, output_itp, cmd_str, result.stdout
 
     def collect_output_files(self, output_dir: str) -> List[str]:
+        """All structure, topology, script, settings and log files in a folder.
+
+        Args:
+            output_dir: The folder to search (including sub-folders).
+
+        Returns:
+            The file paths.
+        """
         files = []
         extensions = [".pdb", ".gro", ".top", ".itp", ".pml", ".json", ".log"]
         for root, _, filenames in os.walk(output_dir):
@@ -264,6 +418,15 @@ quit
 
     def create_output_zip(self, config: Config, pconfig: ProteinConfig) -> str:
         # Write config JSON
+        """Save the settings and zip the work folder of one protein.
+
+        Args:
+            config: The settings of all proteins (written as `martinize_config.json`).
+            pconfig: The protein whose work folder is zipped.
+
+        Returns:
+            The zip file (`martinize_results.zip` in the work folder).
+        """
         output_dir = pconfig.base_folder
         config_path = os.path.join(output_dir, "martinize_config.json")
         with open(config_path, "w") as f:
@@ -280,10 +443,19 @@ quit
         return zip_path
 
     def _named_copies(self, pconfig: ProteinConfig, pdb_path: str, itp_path: str, output_dir: str) -> Tuple[str, str]:
-        """Copy the CG structure and topology to <output_dir>/cg/<name>.pdb (or .gro) and <name>.itp.
+        """Copy the finished files to `cg/<name>.pdb` (or `.gro`) and `cg/<name>.itp`.
 
-        A separate folder, so a name equal to an intermediate file (e.g. a fetched <PDBID>.pdb)
-        can never overwrite it.
+        A separate folder is used, so a name that equals an intermediate file (for example a
+        downloaded `<PDBID>.pdb`) can never overwrite it.
+
+        Args:
+            pconfig: The protein's settings (its `name`).
+            pdb_path: The coarse-grained structure.
+            itp_path: The coarse-grained topology.
+            output_dir: The protein's work folder.
+
+        Returns:
+            `(structure, topology)` paths of the copies.
         """
         name = pconfig.name or os.path.splitext(os.path.basename(pdb_path))[0]
         dest_dir = os.path.join(output_dir, "cg")
@@ -296,6 +468,18 @@ quit
         return pdb_dest, itp_dest
 
     def run_one_protein(self, config: Config, pconfig: ProteinConfig, protein_index: int, output_dir: str) -> Dict[str, Any]:
+        """Prepare one protein, from its source to `<name>.pdb` and `<name>.itp`.
+
+        Args:
+            config: The settings of all proteins.
+            pconfig: The protein's settings.
+            protein_index: Position of the protein.
+            output_dir: The protein's work folder.
+
+        Returns:
+            `success` (`True`/`False`), a `message`, and `outputs` with the paths of the
+            finished files (and, after martinize2, the command and its output).
+        """
         results = {
                         "success": False,
                         "message": "",
@@ -406,6 +590,18 @@ quit
             return results
 
     def run(self, config: Config, protein_index: int = None) -> Dict[str, Any]:
+        """Prepare one protein, or all of them.
+
+        Errors are caught and returned as a failed result, so the page can show them.
+
+        Args:
+            config: The settings of all proteins.
+            protein_index: Position of the protein to prepare; all proteins when empty.
+
+        Returns:
+            With `protein_index`: that protein's result, as in `run_one_protein`. For all
+            proteins: `None` when all went well, otherwise the result of the first failure.
+        """
         if protein_index is not None:
             pconfig = config.proteins[protein_index]
             output_dir = pconfig.base_folder

@@ -1,0 +1,193 @@
+{
+    "martinize": {
+        "build_mode": "protein_membrane",
+        "n_proteins": 1,
+        "proteins": [
+            {
+                "name": "1UBQ",
+                "protein_input_mode": "martinize",
+                "base_folder": "temp-uploads_x/martinize/p0",
+                "cg_pdb_path": "",
+                "cg_itp_path": "",
+                "cg_martini_version": "unknown",
+                "atomistic_source": "Fetch from PDB database",
+                "atomistic_pdb_path": "temp-uploads_x/protein_input/1UBQ.pdb",
+                "fetch_pdb_id": "1UBQ",
+                "clean_structure": true,
+                "selected_chains": [
+                    "A"
+                ],
+                "chain_ranges": {
+                    "A": [
+                        1,
+                        76
+                    ]
+                },
+                "do_mutation": false,
+                "mutation_chain": "",
+                "mutation_residue_idx": null,
+                "mutation_residue_name": "",
+                "mutation_target": "",
+                "forcefield": "martini3001",
+                "secondary_structure_mode": "MDTraj DSSP",
+                "custom_ss_string": "",
+                "use_elastic_network": true,
+                "elastic_lower": 0.5,
+                "elastic_upper": 0.9,
+                "elastic_force": 700.0,
+                "position_restraints": "none",
+                "cysteine_bridges": "auto",
+                "extra_flags": "",
+                "output_cg_pdb_path": "temp-uploads_x/martinize/p0/cg/1UBQ.pdb",
+                "output_itp_path": "temp-uploads_x/martinize/p0/cg/1UBQ.itp"
+            }
+        ]
+    },
+    "membrane": {
+        "output_name": "output/OpenMembraneBuilder-20261106_101500-ubq",
+        "selected_ff": "martini_v3",
+        "box_x": 15.0,
+        "box_y": 15.0,
+        "box_z": 15.0,
+        "box_type": "rectangular",
+        "solvation": "solv:W pos:NA neg:CL salt_molarity:0.15",
+        "salt_molarity": 0.15,
+        "n_systems": 2,
+        "protein_files": {
+            "1UBQ.pdb": {
+                "pdb_path": "output/OpenMembraneBuilder-20261106_101500-ubq/user_inputs/1UBQ.pdb",
+                "itp_path": "output/OpenMembraneBuilder-20261106_101500-ubq/toppar/1UBQ.itp",
+                "force_field": "martini_v3"
+            }
+        },
+        "template_active": false,
+        "template_path": "",
+        "abs_lip_vals": false,
+        "entries": [
+            [
+                "POPC",
+                0.7,
+                0.7,
+                0.64,
+                0.64
+            ],
+            [
+                "CHOL",
+                0.3,
+                0.3,
+                0.4,
+                0.4
+            ]
+        ],
+        "z_method": "Height above Membrane",
+        "distance_to_mem": 1.5,
+        "randomize_pos": false,
+        "randomize_pos_every": false,
+        "randomize_rot": false,
+        "randomize_rot_every": false,
+        "more_copies": true,
+        "copy_number": 2,
+        "copy_mode": "independent",
+        "copy_params": [
+            {
+                "cx": -3.5,
+                "cy": 0.0,
+                "cz": 0.0,
+                "rx": 0.0,
+                "ry": 0.0,
+                "rz": 0.0
+            },
+            {
+                "cx": 3.5,
+                "cy": 0.0,
+                "cz": 0.0,
+                "rx": 0.0,
+                "ry": 90.0,
+                "rz": 0.0
+            }
+        ],
+        "randomize_rot_all_copies": false,
+        "protein_params": {
+            "R0001": {
+                "1UBQ.pdb": {
+                    "cx": 0.0,
+                    "cy": 0.0,
+                    "cz": 0.0,
+                    "rx": 0.0,
+                    "ry": 0.0,
+                    "rz": 0.0,
+                    "copies": [
+                        {
+                            "cx": -3.5,
+                            "cy": 0.0,
+                            "cz": 4.1234,
+                            "rx": 0.0,
+                            "ry": 0.0,
+                            "rz": 0.0
+                        },
+                        {
+                            "cx": 3.5,
+                            "cy": 0.0,
+                            "cz": 3.9876,
+                            "rx": 0.0,
+                            "ry": 90.0,
+                            "rz": 0.0
+                        }
+                    ]
+                }
+            },
+            "R0002": {
+                "1UBQ.pdb": {
+                    "cx": 0.0,
+                    "cy": 0.0,
+                    "cz": 0.0,
+                    "rx": 0.0,
+                    "ry": 0.0,
+                    "rz": 0.0
+                }
+            }
+        },
+        "insertion_params": {
+            "1UBQ.pdb": {
+                "more_copies": true,
+                "copy_number": 2,
+                "copy_mode": "independent",
+                "copies": [
+                    {
+                        "cx": -3.5,
+                        "cy": 0.0,
+                        "cz": 0.0,
+                        "rx": 0.0,
+                        "ry": 0.0,
+                        "rz": 0.0
+                    },
+                    {
+                        "cx": 3.5,
+                        "cy": 0.0,
+                        "cz": 0.0,
+                        "rx": 0.0,
+                        "ry": 90.0,
+                        "rz": 0.0
+                    }
+                ],
+                "randomize_pos": false,
+                "randomize_pos_every": false,
+                "cx": 0.0,
+                "cy": 0.0,
+                "z_method": "Height above Membrane",
+                "cz": 0.0,
+                "distance_to_mem": 1.5,
+                "randomize_rot": false,
+                "randomize_rot_every": false,
+                "randomize_rot_all_copies": false,
+                "rx": 0.0,
+                "ry": 0.0,
+                "rz": 0.0
+            }
+        },
+        "use_protein_distance": false,
+        "protein_distance": 1.0,
+        "molecule_builder_index": {},
+        "extern_config": {}
+    }
+}

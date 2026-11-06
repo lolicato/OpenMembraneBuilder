@@ -87,5 +87,6 @@ openmembranebuilder/wizard/__init__.py
 openmembranebuilder/wizard/gui.py
 openmembranebuilder/wizard/navigation.py
 openmembranebuilder/wizard/page.py
+openmembranebuilder/wizard/run_simulations.py
 openmembranebuilder/wizard/runner.py
 openmembranebuilder/wizard/state.py

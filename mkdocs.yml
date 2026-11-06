@@ -1,47 +1,156 @@
 site_name: OpenMembraneBuilder
-site_description: GUI and CLI builder for Martini coarse-grained membrane/protein systems
-site_author: Fabio
-repo_name: OpenMembraneBuilder
+site_description: GUI and command-line builder for Martini coarse-grained membrane and membrane–protein systems, powered by COBY
+site_author: Fabio Lolicato
+site_url: https://lolicato.github.io/OpenMembraneBuilder/
+repo_name: lolicato/OpenMembraneBuilder
+repo_url: https://github.com/lolicato/OpenMembraneBuilder
+edit_uri: edit/development/docs/
+copyright: Copyright &copy; 2026 Fabio Lolicato – AGPL-3.0
+
+# docs/README.md is the repository's copy of the README; the site starts at index.md
+exclude_docs: |
+  README.md
 
 theme:
   name: material
+  language: en
+  icon:
+    logo: material/layers-triple-outline
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
   features:
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
     - content.code.copy
+    - content.code.annotate
     - content.tabs.link
-  palette:
-    - scheme: default
-      primary: red
-      accent: red
+    - content.tooltips
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Membrane Templates: membrane_templates.md
-  - GUI Usage: gui.md
-  - CLI Usage: cli.md
-  - JSON Config: json-config.md
-  - Output Structure: outputs.md
-  - Citation: citation.md
-  - Contributing: contributing.md
-  - License: license.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Your first system: getting-started/quickstart.md
+  - User guide:
+      - The workflow: user-guide/workflow.md
+      - Preparing proteins: user-guide/proteins.md
+      - Building the membrane: user-guide/membrane.md
+      - Membrane templates: user-guide/templates.md
+      - Inserting proteins: user-guide/protein-insertion.md
+      - Preview, build and results: user-guide/build-results.md
+      - Command line (omb cli): user-guide/cli.md
+  - Reference:
+      - config.json: reference/config.md
+      - Output and GROMACS: reference/outputs.md
+      - Force fields and settings: reference/forcefields.md
+      - Troubleshooting: reference/troubleshooting.md
+  - Code reference:
+      - code/index.md
+      - omb command: code/cli.md
+      - Wizard: code/wizard.md
+      - Protein preparation: code/martinize.md
+      - Membrane builder: code/membrane.md
+      - Core helpers: code/core.md
+  - About:
+      - Changelog: changelog.md
+      - Contributing: contributing.md
+      - Citation: citation.md
+      - License: license.md
 
 plugins:
   - search
   - mkdocstrings:
+      default_handler: python
       handlers:
         python:
           paths:
             - .
+          options:
+            docstring_style: google
+            docstring_options:
+              ignore_init_summary: true
+              warn_missing_types: false
+              warn_unknown_params: true
+            docstring_section_style: table
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            filters: []
+            show_if_no_docstring: false
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            heading_level: 2
 
 markdown_extensions:
+  - abbr
   - admonition
-  - pymdownx.details
-  - pymdownx.superfences
-  - pymdownx.highlight
-  - pymdownx.tabbed:
-      alternate_style: true
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
   - toc:
       permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra_css:
+  - assets/extra.css
+
+# Mermaid is shipped with the docs so that the diagrams also render offline.
+extra_javascript:
+  - assets/js/mermaid.min.js

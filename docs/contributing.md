@@ -74,6 +74,22 @@ The goal is to establish OpenMembraneBuilder as:
 
 ---
 
+# Development setup
+
+```bash
+git clone -b development https://github.com/lolicato/OpenMembraneBuilder.git
+cd OpenMembraneBuilder
+pip install -e ".[docs]"     # editable install + documentation tools
+omb gui                      # code changes apply on the next page reload
+mkdocs serve                 # documentation preview on http://127.0.0.1:8000
+```
+
+The [code reference](code/index.md) explains how the code is organised. Every function has a
+plain-language explanation (docstring) in Google style (`Args:`, `Returns:`); please keep that
+style for new code, so it appears in this documentation.
+
+---
+
 # How to Get Involved
 
 If you would like to contribute, collaborate, or discuss ideas, please contact us at:

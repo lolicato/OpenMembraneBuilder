@@ -1,3 +1,17 @@
+"""The membrane builder's page logic: which page to show and what happens on each click.
+
+The membrane builder has four pages:
+
+1. **Membrane** – force field, box, solvation, number of systems and the lipid composition.
+2. **Protein insertion** – where each protein goes and how it is rotated (only with proteins).
+3. **Preview** – a summary to check before building.
+4. **Results** – the build itself.
+
+The widgets are drawn by `gui.py`. Buttons do not change the page directly: they leave a note
+("next", "back", "build") and ask for a redraw; this module reads the note, copies the values
+from the widgets into the `Config`, checks them and moves to the next page.
+"""
+
 import copy
 import os
 from datetime import datetime
@@ -13,6 +27,15 @@ from openmembranebuilder.builders.membrane.runner import MembraneRunner
 
 
 class MembraneStep(Enum):
+    """The pages of the membrane builder.
+
+    Attributes:
+        MEMBRANE: Force field, box, solvation and lipid composition.
+        PROTEIN_INSERTION: Position and rotation of the proteins.
+        PREVIEW: Summary before building.
+        RESULTS: Building the systems.
+    """
+
     MEMBRANE = auto()
     PROTEIN_INSERTION = auto()
     PREVIEW = auto()
@@ -20,12 +43,21 @@ class MembraneStep(Enum):
 
 
 def _get_step() -> MembraneStep:
+    """The page of the membrane builder shown at the moment (the first page when new)."""
     if "membrane_step" not in st.session_state:
         st.session_state.membrane_step = MembraneStep.MEMBRANE
     return st.session_state.membrane_step
 
 
 def _set_step(step: MembraneStep):
+    """Go to another page of the membrane builder.
+
+    Old error messages are cleared, and the page that is entered fills its widgets again
+    from the saved settings.
+
+    Args:
+        step: The page to show next.
+    """
     st.session_state.membrane_step = step
     st.session_state.pop("_membrane_errors", None)
     if step == MembraneStep.MEMBRANE:
@@ -41,6 +73,22 @@ def main(
     protein_only=False,
     extern_config=None,
 ):
+    """Show the membrane builder; called by the wizard on every redraw.
+
+    On first use the available force fields and their lipids are read from the shipped
+    topology files, and an empty `Config` is created. Then the current page is drawn.
+
+    Args:
+        global_info: The standard folder locations (`GlobalInfo`).
+        has_protein: The workflow contains proteins (shows the protein insertion page).
+        temp_folder: Folder for uploads (e.g. a membrane template).
+        protein_only: Proteins in water, without a membrane.
+        extern_config: Optional extra lipids and settings handed in by another tool.
+
+    Returns:
+        `("done", config)` after the build, `("back", None)` when the user leaves the
+        membrane builder backwards, otherwise `(None, None)`.
+    """
     extern_config = extern_config or {}
 
     parser = MembraneParser()
@@ -158,6 +206,12 @@ def main(
 
 
 def _apply_extern_config(config, extern_config: dict) -> None:
+    """Apply settings handed in by another tool (extra lipids, fixed values).
+
+    Args:
+        config: The membrane settings, changed in place.
+        extern_config: The settings to apply.
+    """
     overrides = extern_config.get("config_overrides", {})
     for key, value in overrides.items():
         setattr(config, key, value)
@@ -167,6 +221,7 @@ def _apply_extern_config(config, extern_config: dict) -> None:
 
 
 def _default_template_source() -> dict:
+    """The starting state of the template choice: no template, empty composition."""
     return {
         "kind": "manual",
         "name": "",
@@ -180,6 +235,11 @@ def _default_template_source() -> dict:
 
 
 def _get_template_source() -> dict:
+    """Which composition source is in use (no template, predefined or uploaded template).
+
+    Returns:
+        The remembered state, created with defaults on first use.
+    """
     state = st.session_state.get("template_source")
     if isinstance(state, dict):
         return state
@@ -189,11 +249,27 @@ def _get_template_source() -> dict:
 
 
 def _set_template_source(template_source: dict) -> dict:
+    """Remember the composition source.
+
+    Args:
+        template_source: The new state.
+
+    Returns:
+        The same state.
+    """
     st.session_state["template_source"] = template_source
     return template_source
 
 
 def _save_manual_backup(entries=None) -> dict:
+    """Keep a copy of the composition typed by hand, before a template replaces it.
+
+    Args:
+        entries: The rows to keep; by default the rows shown at the moment.
+
+    Returns:
+        The updated template state.
+    """
     template_source = _get_template_source()
     current_entries = entries if isinstance(entries, list) else st.session_state.get("entries")
     template_source["manual_backup"] = copy.deepcopy(current_entries) if isinstance(current_entries, list) else []
@@ -201,6 +277,11 @@ def _save_manual_backup(entries=None) -> dict:
 
 
 def _restore_manual_backup() -> dict:
+    """Bring back the composition typed by hand when the template is switched off.
+
+    Returns:
+        The updated template state.
+    """
     template_source = _get_template_source()
     backup = template_source.get("manual_backup")
     restored = copy.deepcopy(backup) if isinstance(backup, list) else []
@@ -218,6 +299,18 @@ def _restore_manual_backup() -> dict:
 
 
 def _apply_template_selection(kind: str, name: str, path: str, entries: list | None = None, abs_lip_vals: bool | None = None) -> dict:
+    """Switch to a template (or back to manual input) and show its composition.
+
+    Args:
+        kind: `"manual"`, `"builtin"` (predefined) or `"upload"`.
+        name: Name of the template.
+        path: The template file.
+        entries: The rows of the template.
+        abs_lip_vals: `True` when the template gives numbers of lipids.
+
+    Returns:
+        The updated template state.
+    """
     template_source = _get_template_source()
     template_source.update({
         "kind": kind,
@@ -236,6 +329,18 @@ def _apply_template_selection(kind: str, name: str, path: str, entries: list | N
 
 
 def _hydrate_template_source(available_lipids: list, global_info=None) -> dict:
+    """Make sure the composition of the chosen template is loaded and shown.
+
+    A template that was chosen earlier but not yet read (for example after going back to
+    this page) is read again; edits already made to its rows are kept.
+
+    Args:
+        available_lipids: The lipids of the selected force field (to check the template).
+        global_info: The standard folder locations.
+
+    Returns:
+        The updated template state.
+    """
     template_source = _get_template_source()
     kind = template_source.get("kind", "manual")
 
@@ -275,11 +380,29 @@ def _hydrate_template_source(available_lipids: list, global_info=None) -> dict:
 
 
 def _render_membrane(global_info, ff_data, force_fields, has_protein, config, temp_folder, protein_only: bool = False) -> str | None:
+    """The membrane page: copy the widget values into the settings, check them, move on.
+
+    When "Next" is pressed, the composition is checked (see `_validate`); with errors the
+    page stays and shows them, otherwise the protein insertion page (with proteins) or the
+    preview follows.
+
+    Args:
+        global_info: The standard folder locations.
+        ff_data: Lipids and lipid descriptions of every force field.
+        force_fields: Names of the available force fields.
+        has_protein: The workflow contains proteins.
+        config: The membrane settings, changed in place.
+        temp_folder: Folder for uploads.
+        protein_only: Proteins in water, without a membrane (no composition needed).
+
+    Returns:
+        `"back"` when the user leaves the membrane builder backwards, otherwise `None`.
+    """
     action = st.session_state.pop("_membrane_action", None)
 
-    
-    # starts. Always copy their session-state values on the action rerun so the
-    # values entered by the user, rather than Config defaults, reach the runner.
+    # The buttons only leave a note ("next" / "back") and redraw the page; the work
+    # starts here. Always copy the widget values from the session memory on that redraw,
+    # so the values entered by the user, rather than Config defaults, reach the runner.
     if action in ("next", "back"):
         config.output_name = st.session_state.get("output_name", config.output_name)
         config.selected_ff = st.session_state.get("selected_ff", config.selected_ff)
@@ -360,10 +483,21 @@ def _render_membrane(global_info, ff_data, force_fields, has_protein, config, te
     render_membrane(force_fields, ff_data, global_info, config, temp_folder, protein_only=protein_only)
     return None
 
+    # (never reached: duplicate of the two lines above)
     render_membrane(force_fields, ff_data, global_info, config, temp_folder, protein_only=protein_only)
     return None
 
 def _render_protein_insertion(global_info, config, temp_folder, protein_only: bool = False) -> None:
+    """The protein insertion page: copy positions, rotations and options into the settings.
+
+    The box can also be changed on this page, so its size is copied too.
+
+    Args:
+        global_info: The standard folder locations.
+        config: The membrane settings, changed in place.
+        temp_folder: Folder for uploads.
+        protein_only: Proteins in water, without a membrane.
+    """
     action = st.session_state.pop("_protein_action", None)
 
     if action in ("next", "back"):
@@ -420,6 +554,21 @@ def _render_protein_insertion(global_info, config, temp_folder, protein_only: bo
 
 
 def _validate(membrane_params) -> tuple[bool, list[str]]:
+    """Check the lipid composition before moving on.
+
+    - There must be at least one lipid.
+    - Fractions (`abs_lip_vals` off) must add up to 1 in each leaflet.
+    - Numbers of lipids (`abs_lip_vals` on) must add up to whole numbers.
+
+    Fractions loaded from a template are not checked for their sum.
+
+    Args:
+        membrane_params: `entries`, `abs_lip_vals` and `template_active`.
+
+    Returns:
+        `(ok, errors)`: `ok` is `True` when no problem was found; `errors` lists the
+        messages to show.
+    """
     errors = []
     entries = membrane_params["entries"]
     abs_vals = membrane_params["abs_lip_vals"]

@@ -1,3 +1,10 @@
+"""The results page: download the zip archive, run the simulations, look at the systems in 3D.
+
+Up to two systems are shown in the Mol* viewer. A protein that crosses the box edge (it is cut
+by the periodic boundary and appears in two pieces) is put back together for the picture
+only; the files you download are never changed.
+"""
+
 import os
 import tempfile
 import numpy as np
@@ -18,10 +25,15 @@ _PROTEIN_RESNAMES = {
 
 
 def _prepare_display_pdb(pdb_path: str, box_nm):
-    """
-    Return a temporary PDB only when a periodic protein split can be repaired.
+    """A copy of the system for the 3D view, with a split protein made whole again.
 
-    The original simulation PDB is never modified.
+    Args:
+        pdb_path: The built system (`system.pdb`).
+        box_nm: Box size (x, y, z) in nm, needed to know how far to move the pieces.
+
+    Returns:
+        The path of a repaired copy in the temporary folder, or the original path when
+        nothing needs (or can) be repaired.
     """
     if not pdb_path or box_nm is None or not os.path.exists(pdb_path):
         return pdb_path
@@ -90,10 +102,17 @@ def _prepare_display_pdb(pdb_path: str, box_nm):
         return pdb_path
 
 def _repair_protein_periodic_split(protein_positions, box_lengths):
-    """
-    Repair a single protein split across a periodic boundary.
+    """Join the pieces of a protein that is split across the box edge.
 
-    Returns repaired positions or None if no reliable repair is found.
+    Along each direction, the largest empty gap between protein beads is taken as the cut;
+    the beads beyond it are moved back by one box length.
+
+    Args:
+        protein_positions: Protein bead positions in Å.
+        box_lengths: Box lengths in Å.
+
+    Returns:
+        The repaired positions, or `None` when the protein still does not fit together.
     """
     repaired = protein_positions.copy()
     original_span = repaired.max(axis=0) - repaired.min(axis=0)
@@ -138,7 +157,16 @@ def _repair_protein_periodic_split(protein_positions, box_lengths):
     return repaired
 
 
-def render_wizard_results(output_pdbs: list, zip_path: str, box_nm=None) -> None:
+def render_wizard_results(output_pdbs: list, zip_path: str, box_nm=None, output_folder=None) -> None:
+    """Draw the results page.
+
+    Args:
+        output_pdbs: `(label, pdb_path)` of each built system, e.g. `("R0001", ".../system.pdb")`.
+        zip_path: The zip archive offered for download.
+        box_nm: Box size (x, y, z) in nm, used to repair split proteins in the view.
+        output_folder: The output folder of the build; offers the "Run simulations" button
+            (unless the app was started with `omb gui --no-run`).
+    """
     st.title("Build Complete")
 
     if zip_path and os.path.exists(zip_path):
@@ -149,6 +177,10 @@ def render_wizard_results(output_pdbs: list, zip_path: str, box_nm=None) -> None
                 file_name=os.path.basename(zip_path),
                 mime="application/zip",
             )
+
+    # "▶ Run simulations": only here, i.e. only after a finished build, and never with --no-run
+    from openmembranebuilder.wizard.run_simulations import render_run_controls
+    render_run_controls(output_folder)
 
     st.divider()
     if not output_pdbs:

@@ -1,3 +1,14 @@
+"""Rebuilding systems from a saved `config.json`, without the graphical interface.
+
+This is what `omb cli config.json` runs. The configuration lists the builders in the order the
+wizard used them (`martinize`, then `membrane`); each one is created from its own section of
+the file and run.
+
+Proteins and custom lipids were already prepared when the configuration was first written:
+their finished files are recorded in the `membrane` section. The builders that produced them
+are therefore skipped, and the membrane builder uses the recorded files directly.
+"""
+
 import importlib
 import inspect
 import json
@@ -6,6 +17,17 @@ from datetime import datetime
 
 
 def _load_runner_class(builder_name: str):
+    """Find the builder class (`...Runner`) of one builder.
+
+    Args:
+        builder_name: Name of the builder, e.g. `"membrane"` or `"martinize"`.
+
+    Returns:
+        The runner class defined in `openmembranebuilder.builders.<builder_name>.runner`.
+
+    Raises:
+        ImportError: The builder has no runner class.
+    """
     module = importlib.import_module(f"openmembranebuilder.builders.{builder_name}.runner")
     for _, obj in vars(module).items():
         # only classes DEFINED in this module (not imported helpers)
@@ -19,6 +41,15 @@ def _load_runner_class(builder_name: str):
 
 
 def run_from_config(config_path: str):
+    """Build the systems described in a `config.json`.
+
+    A new output folder `output/OpenMembraneBuilder-<date>_<time>-headless` is created
+    (unless the file names one), the systems are built in it, the configuration is copied
+    next to them and added to the zip archive in `downloads/`.
+
+    Args:
+        config_path: Path of the `config.json`, usually one written by an earlier build.
+    """
     with open(config_path) as f:
         data = json.load(f)
 

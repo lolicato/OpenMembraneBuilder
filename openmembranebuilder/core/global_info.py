@@ -1,3 +1,16 @@
+"""Where OpenMembraneBuilder finds its own files and where it writes yours.
+
+Two kinds of locations are used:
+
+- **Shipped data** – force fields (`toppar`), simulation settings (`mdp`), run scripts,
+  membrane templates and example files. They live inside the installed package
+  (`openmembranebuilder/resources/`), so they are found wherever the package is installed.
+- **Your results** – the `output/` folder with the built systems, the `downloads/` folder with
+  the zip archives, and a temporary folder for uploaded files. They are created in the working
+  folder: the folder where `omb gui` / `omb cli` was started, or the folder named by the
+  environment variable `OMB_WORKDIR`.
+"""
+
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -13,7 +26,36 @@ _WORK = Path(os.environ.get("OMB_WORKDIR") or Path.cwd()).resolve()
 
 @dataclass
 class GlobalInfo:
-    """Absolute paths: shipped data from the package, outputs in the working folder."""
+    """The fixed folder and file locations used throughout the program.
+
+    Every part of OpenMembraneBuilder creates its own `GlobalInfo()` and reads the paths it
+    needs from it, so changing a location here changes it everywhere.
+
+    Attributes:
+        version: Version label of the program, used in titles.
+        resources_path: Folder with all shipped data (`openmembranebuilder/resources`).
+        toppar_folder: Name of the topology folder inside each output (`toppar`).
+        base_folder: Folder in which every build creates its own sub-folder (`./output`).
+        mdp_folder: Name of the simulation-settings folder inside each output (`mdp`).
+        scripts_folder: Name of the scripts folder inside each output (`scripts`).
+        membrane_template_example_folder: Name of the folder with the example template.
+        membrane_templates_path: Folder with the predefined membrane templates.
+        toppar_folder_path: Folder with the shipped force fields (`.top` files and their
+            `.itp` folders).
+        mdp_folder_path: Folder with the shipped simulation settings, per force field and
+            system type (`membrane` / `protein`).
+        scripts_folder_path: Folder with the shipped `run.sh` and `index.sh`.
+        membrane_template_example_path: Folder with `example_template.ob`, offered for
+            download on the membrane page.
+        downloads_folder_path: Folder where the zip archive of every build is written.
+        temp_folder: Folder for uploads during a session (removed after the build).
+        default_template_name: Name used for the composition when no template with named
+            blocks is used (`single_setup`).
+        import_folder: Name of the folder with extra structures for Martini 2.
+        chol_file: Cholesterol structure used with Martini 2.2 (`CHOL`).
+        chol2_file: Improved cholesterol structure used with Martini 2.2 (`CHOL2`).
+        wf_file: Antifreeze water structure used with Martini 2.2 (`WF`).
+    """
     version: str = "v1.2.1"
     resources_path: str = _RESOURCES
     toppar_folder: str = "toppar"

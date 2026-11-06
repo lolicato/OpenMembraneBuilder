@@ -1,3 +1,13 @@
+"""Reading the force fields: which lipids exist, what they look like, and the membrane text.
+
+- `MartiniLipidParser` reads the shipped force-field files (`toppar/<force field>.top` and the
+  `.itp` files it includes) and finds every lipid, with a description of its head group,
+  linker and tails for the lipid table.
+- `MembraneBuilder` reads membrane templates (`.csv` / `.ob`) and turns a composition into the
+  text COBY understands.
+- `MembraneParser` is the single entry point the pages and the runner use for all of this.
+"""
+
 import sys
 from pathlib import Path
 from typing import List, Dict
@@ -8,9 +18,10 @@ from openmembranebuilder.core.global_info import GlobalInfo
 
 
 class MembraneParser:
-    """Initializes and exposes lipid parsing for the membrane builder."""
+    """One place to ask about force fields, lipids, templates and the membrane text."""
 
     def __init__(self):
+        """Prepare the lipid reader (on the shipped force fields) and the membrane builder."""
         self.global_info  = GlobalInfo()
         self.lipid_parser = MartiniLipidParser(
             Path(self.global_info.toppar_folder_path)   # already correct if GlobalInfo resolves it
@@ -23,6 +34,16 @@ class MembraneParser:
         selected_ff: str,
         extern_config: dict | None = None,
     ) -> list[str]:
+        """Add lipids supplied from outside (custom lipids) to the list of a force field.
+
+        Args:
+            available_lipids: Lipids found in the force field.
+            selected_ff: The force field.
+            extern_config: Extra lipid definitions, each with its force field.
+
+        Returns:
+            All lipid names, sorted.
+        """
         extern_config = extern_config or {}
         lipid_definitions = extern_config.get("lipid_definitions", {})
 
@@ -42,6 +63,16 @@ class MembraneParser:
         selected_ff: str,
         extern_config: dict | None = None,
     ) -> dict:
+        """Add descriptions of lipids supplied from outside to the lipid table.
+
+        Args:
+            lipid_map: Descriptions found in the force field.
+            selected_ff: The force field.
+            extern_config: Extra lipid definitions.
+
+        Returns:
+            All descriptions, by lipid name.
+        """
         extern_config = extern_config or {}
         lipid_definitions = extern_config.get("lipid_definitions", {})
 
@@ -70,6 +101,11 @@ class MembraneParser:
     
 
     def get_force_fields(self) -> list[str]:
+        """The force fields shipped with OpenMembraneBuilder (one `.top` file each).
+
+        Returns:
+            Names such as `["martini_v2.2", "martini_v3"]`.
+        """
         toppar = self.global_info.toppar_folder_path
         return [
             f.removesuffix(".top")
@@ -82,6 +118,15 @@ class MembraneParser:
     selected_ff: str,
     extern_config: dict | None = None,
 ) -> list[str]:
+        """All lipids that can be used with a force field.
+
+        Args:
+            selected_ff: The force field.
+            extern_config: Optional extra lipids.
+
+        Returns:
+            Lipid names, sorted.
+        """
         ff_key = f"{selected_ff}.top"
         available_lipids = self.lipid_parser.lipidmap.get(ff_key, [])
         if not available_lipids:
@@ -89,6 +134,15 @@ class MembraneParser:
         return self._merge_external_available_lipids(available_lipids, selected_ff, extern_config)
 
     def get_default_entries(self, available_lipids: list[str], abs_mode: bool = False) -> list[list]:
+        """The starting composition: the first lipid, 1.0 in both leaflets, 0.6 nm² per lipid.
+
+        Args:
+            available_lipids: The lipids of the force field.
+            abs_mode: Not used; the same row serves both modes.
+
+        Returns:
+            One composition row.
+        """
         if not available_lipids:
             available_lipids = ["POPC"]
         default_lipid = available_lipids[0]
@@ -99,6 +153,15 @@ class MembraneParser:
         selected_ff: str,
         extern_config: dict | None = None,
     ) -> dict:
+        """Descriptions of all lipids of a force field, for the lipid table.
+
+        Args:
+            selected_ff: The force field.
+            extern_config: Optional extra lipids.
+
+        Returns:
+            `{lipid: {resname, moltype, head, linker, tail1, tail2, tail1_beads, tail2_beads}}`.
+        """
         lipid_map = self.lipid_parser.buildlipidmap(selected_ff)
         return self._merge_external_lipid_map(lipid_map, selected_ff, extern_config)
 
@@ -106,6 +169,14 @@ class MembraneParser:
         self,
         resources_dir: str | os.PathLike[str] | None = None,
     ) -> list[Path]:
+        """The predefined membrane templates (`.csv` / `.ob`) in the resources folder.
+
+        Args:
+            resources_dir: Another resources folder to look in.
+
+        Returns:
+            The template files, sorted by name.
+        """
         base_dir = Path(resources_dir) if resources_dir is not None else Path(self.global_info.resources_path)
         templates_dir = base_dir / "membrane_templates"
         if not templates_dir.exists():
@@ -120,20 +191,31 @@ class MembraneParser:
         )
 
     def load_membrane_template_from_csv(self, path: str, available_lipids: list, gui: bool = True):
+        """Read a membrane template; see `MembraneBuilder.load_membrane_template_from_csv`."""
         return self.membrane_builder.load_membrane_template_from_csv(path, available_lipids, gui=gui)
 
     def create_membrane_str(self, config) -> str:
+        """The composition being built, in COBY's notation; see `MembraneBuilder.create_membrane_str`.
+        """
         self.membrane_builder.config = config
         return self.membrane_builder.create_membrane_str(config)
 
     def check_chol_import(self, config) -> str:
+        """Which Martini 2.2 cholesterol model is used, if any; see `MembraneBuilder.check_chol_import`.
+        """
         self.membrane_builder.config = config
         return self.membrane_builder.check_chol_import()
     
 
 class MartiniLipidParser:
-    
+    """Finds the lipids of the shipped Martini force fields and describes them."""
+
     def __init__(self, toppardir: str = None):
+        """Prepare the reader.
+
+        Args:
+            toppardir: Folder with the force fields; the shipped one by default.
+        """
         if toppardir is None:
             toppardir = GlobalInfo().toppar_folder_path
         self.toppardir = Path(toppardir)
@@ -142,7 +224,11 @@ class MartiniLipidParser:
         self.alllipids = set()
     
     def discoverforcefields(self) -> List[str]:
-        """FFs: Find .top → strip .itp for sidebar."""
+        """The force fields in the folder (one `.top` file each).
+
+        Returns:
+            Force-field names, sorted.
+        """
         if not self.toppardir.exists():
             return []
         
@@ -155,7 +241,14 @@ class MartiniLipidParser:
         return sorted(self.forcefields)
     
     def parseincludes(self, fffile: str) -> List[Path]:
-        """Parse #include .itp - skip dirs."""
+        """The `.itp` files included by a force-field `.top` file.
+
+        Args:
+            fffile: The `.top` file name, e.g. `"martini_v3.top"`.
+
+        Returns:
+            Paths of the included files that exist.
+        """
         ffpath = self.toppardir / fffile
         if not ffpath.is_file():
             return []
@@ -175,7 +268,17 @@ class MartiniLipidParser:
         return includes
     
     def extractmoleculetypessinglefile(self, filepath: str) -> List[str]:
-        """Extract [moleculetype] from single .itp."""
+        """The molecule names defined in one lipid `.itp` file.
+
+        Only files whose name points to lipids (phospholipids, sterols, ceramides, …) are
+        read; other files return nothing.
+
+        Args:
+            filepath: The `.itp` file.
+
+        Returns:
+            Molecule names, sorted.
+        """
         keywords = ['lipids', 'sterols', 'ceramides', 'plasmalogens', 'DOTAP', 
                    'diglycerides', 'triglycerides', 'monoglycerides', 'CHOL']
         filename = os.path.basename(filepath).lower()
@@ -202,10 +305,18 @@ class MartiniLipidParser:
         return sorted(list(moleculetypes))
     
     def extractmoleculetypes(self, itppath: Path) -> List[str]:
+        """The molecule names of one lipid `.itp` file (see `extractmoleculetypessinglefile`)."""
         return self.extractmoleculetypessinglefile(str(itppath))
     
     def scanfflipids(self, fffile: str) -> List[str]:
-        """Scan FF .itp + includes for lipids."""
+        """All lipids of a force field.
+
+        Args:
+            fffile: The force field, e.g. `"martini_v3"`.
+
+        Returns:
+            Lipid names, sorted (also remembered in `lipidmap`).
+        """
         ff_file = fffile + ".top"
         includes = self.parseincludes(ff_file)
         fflipids = set()
@@ -216,24 +327,19 @@ class MartiniLipidParser:
         return self.lipidmap[ff_file]
     
     def buildlipidmap(self, fffile: str) -> Dict[str, Dict[str, str]]:
-        """
-        Build a detailed resname → lipid info mapping for a given forcefield.
+        """A description of every lipid of a force field, for the lipid table.
 
-        Follows the same include chain as scanfflipids():
-        fffile.itp → parseincludes() → extractmoleculetypes() filter
-        Only .itp files that pass the lipid-keyword filename filter are parsed.
+        The description is read from the comments in the force-field files: the title line
+        (`Martini lipid topology for …`) gives the tails, the description gives the head group
+        and the `@COBY` line gives the lipid type and bead names. Sterols without such lines
+        are recognised by name. Some force-field specific labels (e.g. the two cholesterol
+        models of Martini 2.2) are set explicitly.
 
-        Parameters
-        ----------
-        fffile : str
-            Forcefield name without .itp extension (as returned by discoverforcefields()).
+        Args:
+            fffile: The force field, e.g. `"martini_v3"`.
 
-        Returns
-        -------
-        Dict[str, Dict[str, str]]
-            Mapping of resname → {resname, moltype, head, linker, tail1, tail2,
-                                tail1_beads, tail2_beads}
-            Also stored in self.detailedlipidmap.
+        Returns:
+            `{lipid: {resname, moltype, head, linker, tail1, tail2, tail1_beads, tail2_beads}}`.
         """
 
         # ── Lookup tables ─────────────────────────────────────────────────
@@ -340,6 +446,8 @@ class MartiniLipidParser:
         # ── Helpers ───────────────────────────────────────────────────────
 
         def beads_to_acyl(bead_str: str) -> str:
+            """A rough tail description from its bead letters (4 carbons per bead, D/T beads = double bonds).
+            """
             if not bead_str:
                 return "Unknown"
             carbons = len(bead_str) * 4
@@ -348,6 +456,8 @@ class MartiniLipidParser:
             return f"{prefix}{carbons}:{double_bonds} (est.)"
 
         def parse_tails_from_title(fragment: str):
+            """The two tails named in a title such as `C16:0/18:1`, `di-C18:1` or `C(d18:1/16:0)`.
+            """
             fragment = fragment.strip()
 
             # di-CXX:Y → both tails identical
@@ -384,6 +494,7 @@ class MartiniLipidParser:
             return fragment, None
 
         def headgroup_from_description(desc_text: str) -> str | None:
+            """The head group named in a lipid's description, or `None`."""
             t = desc_text.lower()
             keywords = [
                 ("phosphatidylinositol bisphosphate", "Phosphatidylinositol bisphosphate (PIP2)"),
@@ -416,7 +527,7 @@ class MartiniLipidParser:
             return None
 
         def parse_itp_for_lipids(itppath: Path) -> Dict[str, Dict[str, str]]:
-            """Parse a single lipid .itp file and return all resname entries found."""
+            """Descriptions of all lipids in one `.itp` file."""
             results = {}
             try:
                 with open(itppath, 'r', errors='ignore') as f:
@@ -547,12 +658,34 @@ class MartiniLipidParser:
         return lipid_detail_map
 
 class MembraneBuilder:
+    """Reads membrane templates and writes the composition in COBY's notation."""
+
     def __init__(self, parser: MartiniLipidParser):
+        """Prepare the builder.
+
+        Args:
+            parser: The lipid reader.
+        """
         self.parser = parser
         self.entries = []
         self.config = None
     
     def load_membrane_template_from_csv(self, uploaded_file, available_lipids: list, gui=True):
+        """Read a membrane template (`.csv` or `.ob`).
+
+        A template has one or more blocks; each starts with `# Name` and lists one lipid per
+        line: `lipid, upper, lower[, area per lipid upper, area per lipid lower]`. Text after
+        `;` is a comment. A file without `# Name` lines is one block called `single_setup`.
+
+        Args:
+            uploaded_file: The template file.
+            available_lipids: The lipids of the force field (unknown lipids are an error).
+            gui: Show errors on the page (`True`) or print them (`False`).
+
+        Returns:
+            `{block name: [[lipid, upper, lower, AU, AL], ...]}`, or `None` when the file
+            cannot be used.
+        """
         try:
             with open(uploaded_file, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -616,7 +749,21 @@ class MembraneBuilder:
 
 
     def _parse_membrane_block(self, lines: list[str], available_lipids: list, block_name: str) -> pd.DataFrame | None:
-        """Parse a list of CSV lines into a validated membrane DataFrame."""
+        """Read the lipid lines of one template block and check them.
+
+        Missing areas per lipid become 0.6 nm², missing leaflet values 0.
+
+        Args:
+            lines: The lipid lines of the block.
+            available_lipids: The lipids of the force field.
+            block_name: Name of the block (for messages).
+
+        Returns:
+            A table with one row per lipid.
+
+        Raises:
+            ValueError: Wrong number of columns, or a lipid that does not exist.
+        """
         from io import StringIO
         try:
             df = pd.read_csv(StringIO("\n".join(lines)), header=None)
@@ -675,7 +822,7 @@ class MembraneBuilder:
 
 
     def _records_to_entries(self,records: list[dict]) -> list[list]:
-        """Convert list of membrane record dicts to the legacy list-of-lists format."""
+        """Turn table rows into composition rows `[lipid, upper, lower, AU, AL]`."""
         return [
             [r["resname"], r["upper leaflet ratio"], r["lower leaflet ratio"],
             r["upper leaflet apl"], r["lower leaflet apl"]]
@@ -687,9 +834,14 @@ class MembraneBuilder:
 
     
     def setup_lipids(self, forcefield: str, extern_config: dict | None = None):
-        """Return a pure data payload for membrane default state.
+        """The lipids of a force field and a starting composition.
 
-        The page layer is responsible for writing this into session state.
+        Args:
+            forcefield: The force field.
+            extern_config: Optional extra lipids.
+
+        Returns:
+            `available_lipids` and a starting row for fraction and number mode.
         """
         available_lipids = self.parser.scanfflipids(forcefield)
 
@@ -713,6 +865,19 @@ class MembraneBuilder:
         }
 
     def lipid_args(self, lip, ff) -> str:
+        """COBY's options for one lipid: where its charge and parameters come from.
+
+        Custom lipids use the molecule-builder parameters, Martini 2.2 lipids COBY's Martini 2
+        library (cholesterol is imported from the shipped structure), and Martini 3 lipids one
+        of COBY's built-in Martini 3 parameter sets.
+
+        Args:
+            lip: The lipid name.
+            ff: The force field.
+
+        Returns:
+            An option text such as `"charge:top:params:TOP"`.
+        """
         molecule_builder_index = getattr(self.config, "molecule_builder_index", {}) or {}
 
         if lip in molecule_builder_index:
@@ -735,7 +900,19 @@ class MembraneBuilder:
         return "charge:top:params:default"  
 
     def create_membrane_str(self,config):
-        """Create the COBY input string to generate the membrane."""
+        """The composition in COBY's notation.
+
+        One `leaflet:upper …` and one `leaflet:lower …` part, each listing
+        `lipid:<name>:<amount>:<options>:apl:<area per lipid>` for every lipid present in that
+        leaflet. With numbers of lipids, `lipid_optim:abs_val` tells COBY to use them as
+        exact numbers.
+
+        Args:
+            config: The membrane settings (`entries_current`, `abs_lip_vals`, force field).
+
+        Returns:
+            The membrane text (also stored in `config.membrane_string`).
+        """
         
 
         entries = config.entries_current
@@ -769,7 +946,11 @@ class MembraneBuilder:
         config.membrane_string = membrane_string
         return membrane_string
     def check_chol_import(self):
-        """Check entries_current for cholesterol lipids and set chol_import_needed if found."""
+        """Which cholesterol model (Martini 2.2 only) the composition uses.
+
+        Returns:
+            `"CHOL"`, `"CHOL2"`, or `None`.
+        """
         if self.config.selected_ff != "martini_v2.2":
             return None
         for lip, *_ in (getattr(self.config, "entries_current", None) or []):

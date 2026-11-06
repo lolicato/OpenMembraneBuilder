@@ -1,3 +1,17 @@
+"""The widgets of the membrane builder: what you see and fill in on its pages.
+
+- **Membrane page** (`render_membrane`): force field, box, solvation, number of systems,
+  output name in the sidebar; template choice, lipid table and composition rows in the main
+  area.
+- **Protein insertion page** (`render_protein_insertion`): the box again, then for every
+  protein its position, height, rotation and copies in the sidebar; the schematic system view
+  with warnings in the main area.
+- **Preview page** (`render_preview`): a summary of all settings and the Build button.
+
+The values are kept in Streamlit's session memory under fixed names (keys), so they survive
+the redraw after every click and going back and forth between pages.
+"""
+
 import copy
 import html
 import os
@@ -15,20 +29,49 @@ from openmembranebuilder.core.gui import GlobalGui
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _ns(name: str) -> str:
-    """Namespace for widget keys of one protein file."""
+    """A short prefix for the widget names of one protein, made from its file name.
+
+    Args:
+        name: The protein's file name, e.g. `"1UBQ.pdb"`.
+
+    Returns:
+        The prefix, e.g. `"1UBQ_pdb"`.
+    """
     return name.replace(".", "_").replace(" ", "_")
 
 
 def _default(d: dict, name: str, fallback):
-    """d[name], unless missing / None / '' -> fallback."""
+    """A saved value, or a fallback when it is missing or empty.
+
+    Args:
+        d: The saved values.
+        name: The value's name.
+        fallback: What to use instead.
+
+    Returns:
+        `d[name]`, or `fallback` when it is missing, `None` or empty.
+    """
     val = d.get(name)
     return fallback if val is None or val == "" else val
 
 
 def _num_input(label: str, key: str, lo: float, hi: float, step: float, default: float, container=None):
-    """
-    Streamlit falls back to min_value when a keyed widget has no value in session state (that produced the -box/2 default). Here the key is always initialised
-    first and clamped to [lo, hi] so a box resize can never leave it out of range.
+    """A number field that always shows a value inside its allowed range.
+
+    The stored value is set before the field is drawn and kept within `[lo, hi]`, so
+    making the box smaller can never leave a position outside the box.
+
+    Args:
+        label: Text next to the field.
+        key: Name under which the value is remembered.
+        lo: Smallest allowed value.
+        hi: Largest allowed value.
+        step: Change per click on the +/− buttons.
+        default: Value used the first time.
+        container: Where to draw the field; the sidebar by default.
+
+    Returns:
+        The value shown in the field.
     """
     if key not in st.session_state:
         st.session_state[key] = default
@@ -39,10 +82,10 @@ def _num_input(label: str, key: str, lo: float, hi: float, step: float, default:
 
 
 def _reset_entry_widgets() -> None:
-    """Drop the widget state of all lipid rows so they re-seed from `entries`.
+    """Forget the values of the lipid-row widgets, so they are filled again from the rows.
 
-    Needed after deleting a row: the rows below shift up, but their widget keys
-    (lipid_<i>, entry_<i>_<j>) would keep the values of the OLD rows.
+    Needed after a row is deleted or a template is loaded: the rows move, and the widgets
+    would otherwise keep showing the values of the old rows.
     """
     for k in list(st.session_state.keys()):
         if re.match(r"^lipid_\d+$", k) or re.match(r"^entry_\d+_\d+$", k):
@@ -50,10 +93,17 @@ def _reset_entry_widgets() -> None:
 
 
 def _detect_template_abs_mode(template_path: str) -> bool | None:
-    """Check the actual values in the first non-comment row.
+    """Guess whether a template gives numbers of lipids or fractions.
 
-    Absolute templates use whole-number leaflet counts, while relative templates use
-    ratios in the 0..1 range.
+    The first lipid row decides: whole numbers mean numbers of lipids, anything else
+    fractions.
+
+    Args:
+        template_path: The template file.
+
+    Returns:
+        `True` for numbers, `False` for fractions, `None` when the file cannot be read or
+        has no lipid row.
     """
     try:
         with open(template_path, "r", encoding="utf-8") as fh:
@@ -82,6 +132,14 @@ def _detect_template_abs_mode(template_path: str) -> bool | None:
 # ─── Martini version consistency ──────────────────────────────────────────────
 
 def _ff_major(ff: str) -> str | None:
+    """The Martini generation of a force-field name.
+
+    Args:
+        ff: A name such as `"martini_v3"`, `"martini3001"` or `"martini22"`.
+
+    Returns:
+        `"2"`, `"3"`, or `None` when it cannot be told.
+    """
     ff = (ff or "").lower()
     if "v2" in ff or "martini2" in ff:
         return "2"
@@ -91,8 +149,18 @@ def _ff_major(ff: str) -> str | None:
 
 
 def ff_mismatch_message(protein_files: dict, selected_ff: str) -> str | None:
-    """Warning text if the Martini version of the proteins differs from the membrane
-    force field (or from each other); None if everything matches or is unknown."""
+    """A warning when proteins and membrane belong to different Martini generations.
+
+    Martini 2 and Martini 3 models must not be mixed: the simulation may fail or give
+    wrong results.
+
+    Args:
+        protein_files: The proteins, each with its `force_field`.
+        selected_ff: The force field chosen for the membrane.
+
+    Returns:
+        The warning text, or `None` when everything matches or is unknown.
+    """
     versions = {
         name: _ff_major(p.get("force_field", ""))
         for name, p in (protein_files or {}).items()
@@ -126,14 +194,32 @@ def ff_mismatch_message(protein_files: dict, selected_ff: str) -> str | None:
 # ─── Membrane page widgets ────────────────────────────────────────────────────
 
 class MembraneGui:
+    """The widgets of the membrane page."""
+
     @staticmethod
     def render_force_field_selector(force_fields: list[str]) -> str:
+        """The force-field choice in the sidebar (Martini 3 by default).
+
+        Args:
+            force_fields: Names of the available force fields.
+
+        Returns:
+            The chosen force field.
+        """
         if "selected_ff" not in st.session_state or st.session_state["selected_ff"] not in force_fields:
             st.session_state["selected_ff"] = "martini_v3" if "martini_v3" in force_fields else force_fields[0]
         return st.sidebar.selectbox("Force Field", force_fields, key="selected_ff")
 
     @staticmethod
     def render_box_params() -> tuple:
+        """Box type and size in the sidebar (also used on the protein insertion page).
+
+        Only the lengths that the box type needs are shown: x, y and z for a rectangular box,
+        x and z for a hexagonal box, x for a skewed hexagonal box.
+
+        Returns:
+            `(box type, x, y, z)`, lengths in nm.
+        """
         st.sidebar.subheader("Box Parameters")
         st.session_state.setdefault("box_type", "rectangular")
         st.session_state.setdefault("boxx", 10.0)
@@ -163,6 +249,16 @@ class MembraneGui:
 
     @staticmethod
     def render_solvation_input(selected_ff: str) -> str:
+        """Ions and salt concentration in the sidebar.
+
+        With Martini 2.2 a share of the water can be replaced by antifreeze water (WF).
+
+        Args:
+            selected_ff: The chosen force field.
+
+        Returns:
+            The solvation in COBY's notation, e.g. `"solv:W pos:NA neg:CL salt_molarity:0.15"`.
+        """
         st.sidebar.subheader("Solvation")
         st.session_state.setdefault("pos_ion", "NA")
         st.session_state.setdefault("neg_ion", "CL")
@@ -198,6 +294,11 @@ class MembraneGui:
 
     @staticmethod
     def render_n_systems_input() -> int:
+        """The number of independent systems (replicas) to build, 1 to 99.
+
+        Returns:
+            The chosen number.
+        """
         st.session_state.setdefault("n_systems", 1)
         return st.sidebar.number_input(
             "Systems",
@@ -209,11 +310,25 @@ class MembraneGui:
 
     @staticmethod
     def render_output_name_input() -> str:
+        """An optional name that is added to the output folder.
+
+        Returns:
+            The name typed, or an empty text.
+        """
         st.session_state.setdefault("output_name", "")
         return st.sidebar.text_input("Output folder name", key="output_name")
 
     @staticmethod
     def render_predefined_template_selector(available_lipids: list, global_info):
+        """A list of the predefined membrane templates (older single-list version of the choice).
+
+        Args:
+            available_lipids: The lipids of the chosen force field.
+            global_info: The standard folder locations.
+
+        Returns:
+            The path of the chosen template, or `None` for "No template".
+        """
         template_dir = Path(global_info.resources_path) / "membrane_templates"
         template_files = sorted(
             [p for p in template_dir.iterdir() if p.is_file() and p.suffix.lower() in {".csv", ".ob"}],
@@ -291,6 +406,22 @@ class MembraneGui:
         entries: list | None = None,
         abs_lip_vals: bool | None = None,
     ) -> bool:
+        """The template box: no template, a predefined template, or your own file.
+
+        A template fills the lipid table. The rows typed by hand are kept aside and come back
+        when "No template" is chosen again. An example template can be downloaded.
+
+        Args:
+            available_lipids: The lipids of the chosen force field (to check the template).
+            global_info: The standard folder locations.
+            temp_folder: Where an uploaded template is stored.
+            template_source: The current template state.
+            entries: The rows shown at the moment.
+            abs_lip_vals: `True` when the rows give numbers of lipids.
+
+        Returns:
+            `True` when a template is in use.
+        """
         os.makedirs(temp_folder, exist_ok=True)
 
         template_source = template_source or st.session_state.setdefault(
@@ -316,6 +447,8 @@ class MembraneGui:
             )
 
             def apply_template_state(kind: str, name: str, path: str, entries: list | None, abs_mode: bool | None):
+                """Switch the lipid table to a template's rows, or back to the rows typed by hand.
+                """
                 current_path = template_source.get("path", "")
                 if current_kind in {"builtin", "upload"} and current_path and current_path != path:
                     if current_kind == "upload" and os.path.exists(current_path):
@@ -427,6 +560,14 @@ class MembraneGui:
 
     @staticmethod
     def render_lipid_mapping(lipid_map: dict):
+        """The searchable table of all lipids of the force field, shown on request.
+
+        It lists head group, linker, tails and bead types of every lipid and can be filtered
+        and downloaded as CSV.
+
+        Args:
+            lipid_map: The lipid descriptions of the chosen force field.
+        """
         if "show_lipid_mapping" not in st.session_state:
             st.session_state.show_lipid_mapping = False
 
@@ -496,6 +637,21 @@ class MembraneGui:
         abs_lip_vals: bool | None = None,
         template_source: dict | None = None,
     ) -> list:
+        """The lipid table: one row per lipid, with its share in each leaflet.
+
+        Columns: lipid, upper leaflet (RU/NU), lower leaflet (RL/NL), area per lipid upper
+        (AU) and lower (AL), in nm². With "Give absolute lipid values" the leaflet columns
+        are numbers of lipids (NU/NL), otherwise fractions (RU/RL).
+
+        Args:
+            available_lipids: The lipids of the chosen force field.
+            entries: The rows to show.
+            abs_lip_vals: `True` for numbers of lipids.
+            template_source: The current template state.
+
+        Returns:
+            The rows as edited, `[lipid, upper, lower, AU, AL]` each.
+        """
         default_abs = bool(st.session_state.get("abs_lip_vals", False if abs_lip_vals is None else abs_lip_vals))
         if abs_lip_vals is not None:
             st.session_state.setdefault("abs_lip_vals", default_abs)
@@ -536,11 +692,13 @@ class MembraneGui:
             _reset_entry_widgets()
 
         def add_entry():
+            """Add a new row (first lipid of the list, 1.0 / 1.0, area per lipid 0.6 nm²)."""
             st.session_state.entries.append(
                 [available_lipids[0] if available_lipids else "POPC", 1.0, 1.0, 0.6, 0.6]
             )
 
         def delete_entry(idx):
+            """Remove one row from the lipid table."""
             entries_now = st.session_state.get("entries")
             if not isinstance(entries_now, list):
                 return
@@ -597,9 +755,16 @@ class MembraneGui:
 # ─── Protein page widgets ─────────────────────────────────────────────────────
 
 class ProteinGui:
+    """The widgets of the protein insertion page."""
+
     @staticmethod
     def render_protein_list() -> dict[str, dict]:
-        """Read-only list of the proteins prepared in the martinize builder.
+        """The list of prepared proteins in the sidebar (read only).
+
+        The proteins are changed in the protein-preparation step, not here.
+
+        Returns:
+            The proteins: `{file name: {"pdb_path", "itp_path", "force_field"}}`.
         """
         protein_files = st.session_state.get("protein_files", {})
 
@@ -626,8 +791,32 @@ class ProteinGui:
         n_proteins: int = 1,
         defaults: dict | None = None,
     ) -> dict:
-        """`defaults` = saved pose (config.protein_params) merged with the saved
-        insertion flags (config.insertion_params) of this protein."""
+        """All placement settings of one protein in the sidebar.
+
+        - **Copies** (only with one protein): how many, and whether they move together on a
+          grid or each copy is placed independently.
+        - **Position**: x and y from the box centre, or random.
+        - **Height**: absolute z, or a gap above the membrane surface.
+        - **Rotation**: angles about x, y and z, or random (also per system or per copy).
+        - **Independent copies**: their own position, height and rotation, each in its own
+          expandable section; they start on the grid of "Move together".
+
+        Args:
+            protein_name: The protein's file name.
+            boxx: Box length x, in nm (limits the position).
+            boxy: Box length y, in nm.
+            boxz: Box height z, in nm.
+            n_systems: Number of systems (offers "re-randomize for each system").
+            protein_only: No membrane, so no "Height above Membrane".
+            use_distance_mode: Two proteins placed by their gap; x/y are not asked.
+            n_proteins: Number of proteins (copies are offered for a single protein only).
+            defaults: Saved values to start from.
+
+        Returns:
+            The settings of this protein (`more_copies`, `copy_number`, `copy_mode`,
+            `copies`, `randomize_pos`, `cx`, `cy`, `z_method`, `cz`, `distance_to_mem`,
+            `randomize_rot`, `rx`, `ry`, `rz`, …).
+        """
         d = defaults or {}
         ns = _ns(protein_name)
 
@@ -772,7 +961,7 @@ class ProteinGui:
         protein_files: dict,           
         boxx, boxy, boxz, n_systems, protein_only
     ) -> dict:
-        """Renders insertion params for all loaded proteins."""
+        """Placement settings for all proteins (earlier version, replaced by the one below)."""
         if not protein_files:
             return {}  
         results = {}
@@ -810,6 +999,23 @@ class ProteinGui:
     def render_multi_protein_params(
         protein_files: dict, boxx, boxy, boxz, n_systems, protein_only, config=None
     ) -> dict:
+        """Placement settings for all proteins, one block per protein.
+
+        With exactly two proteins you can also place them by the gap between them instead of
+        by x/y positions.
+
+        Args:
+            protein_files: The proteins.
+            boxx: Box length x, in nm.
+            boxy: Box length y, in nm.
+            boxz: Box height z, in nm.
+            n_systems: Number of systems.
+            protein_only: Proteins in water, without a membrane.
+            config: The saved settings, used to fill the widgets.
+
+        Returns:
+            The settings of every protein, by file name.
+        """
         if not protein_files:
             return {}
 
@@ -867,6 +1073,18 @@ class ProteinGui:
 # ─── Page renderers ───────────────────────────────────────────────────────────
 
 def render_membrane(force_fields, ff_data, global_info, config, temp_folder, protein_only: bool = False) -> dict | str | None:
+    """Draw the membrane page.
+
+    The first time the page is entered, its widgets are filled from the saved settings.
+
+    Args:
+        force_fields: Names of the available force fields.
+        ff_data: Lipids and lipid descriptions of every force field.
+        global_info: The standard folder locations.
+        config: The saved settings.
+        temp_folder: Folder for uploaded templates.
+        protein_only: Proteins in water: the composition part is not shown.
+    """
     if not st.session_state.get("_membrane_seeded"):
         st.session_state["selected_ff"] = config.selected_ff
         st.session_state["box_type"] = config.box_type
@@ -890,6 +1108,7 @@ def render_membrane(force_fields, ff_data, global_info, config, temp_folder, pro
     result = {}
 
     def sidebar():
+        """Sidebar: force field, box, solvation, number of systems, output name."""
         result["selected_ff"] = MembraneGui.render_force_field_selector(force_fields)
         if not protein_only or st.session_state.get("protein_files"):
             _ff_msg = ff_mismatch_message(st.session_state.get("protein_files", {}), result["selected_ff"])
@@ -906,6 +1125,7 @@ def render_membrane(force_fields, ff_data, global_info, config, temp_folder, pro
         result["output_name"] = MembraneGui.render_output_name_input()
 
     def content():
+        """Main area: errors, template choice, lipid table, Back / Next."""
         for err in st.session_state.get("_membrane_errors", []):
             st.error(err)
 
@@ -955,9 +1175,25 @@ def render_membrane(force_fields, ff_data, global_info, config, temp_folder, pro
 
     GlobalGui.render_page(title="Membrane Builder", content_fn=content, sidebar_fn=sidebar, layout="wide")
 
+    # (never reached: render_page ends the page drawing)
     GlobalGui.render_page(title="Membrane Builder", content_fn=content,sidebar_fn=sidebar, layout="wide")
 
 def render_protein_insertion(global_info, boxx, boxy, boxz, n_systems, config, temp_folder, protein_only: bool = False) -> dict | str | None:
+    """Draw the protein insertion page.
+
+    The first time the page is entered, its widgets are filled from the saved settings
+    (poses, options, independent copies, box).
+
+    Args:
+        global_info: The standard folder locations.
+        boxx: Box length x, in nm.
+        boxy: Box length y, in nm.
+        boxz: Box height z, in nm.
+        n_systems: Number of systems.
+        config: The saved settings.
+        temp_folder: Folder for uploads.
+        protein_only: Proteins in water, without a membrane.
+    """
     if not st.session_state.get("_protein_seeded"):
         for pdb_name, pose in config.protein_params.get("R0001", {}).items():
             ns = _ns(pdb_name)
@@ -997,6 +1233,7 @@ def render_protein_insertion(global_info, boxx, boxy, boxz, n_systems, config, t
     result = {}
 
     def sidebar():
+        """Sidebar: box, list of proteins, placement settings of each protein."""
         result["box_type"], result["boxx"], result["boxy"], result["boxz"] = MembraneGui.render_box_params()
         result["protein_files"] = ProteinGui.render_protein_list()
         protein_files = result["protein_files"]
@@ -1011,6 +1248,7 @@ def render_protein_insertion(global_info, boxx, boxy, boxz, n_systems, config, t
         )
 
     def content():
+        """Main area: system view, Back / Next."""
         render_system_view(result, protein_only)
         with st.container(key="nav_protein"):
             st.divider()
@@ -1036,13 +1274,32 @@ def render_protein_insertion(global_info, boxx, boxy, boxz, n_systems, config, t
 
 @st.cache_data(show_spinner=False)
 def _bead_coords(pdb_path: str, mtime: float):
-    """Bead coordinates (Å) of a protein file; cached per file and modification time."""
+    """The bead positions of a protein file, in Å.
+
+    Remembered per file and modification time, so the file is read only once.
+
+    Args:
+        pdb_path: The protein structure.
+        mtime: The file's modification time (a changed file is read again).
+
+    Returns:
+        The positions, one row per bead.
+    """
     import MDAnalysis as mda
     return mda.Universe(pdb_path).atoms.positions.astype(float)
 
 
 def render_system_view(result: dict, protein_only: bool) -> None:
-    """The schematic system view (x–z / y–z / x–y) of the protein insertion page."""
+    """The schematic system view of the protein insertion page, with its warnings.
+
+    Shows box, membrane and every protein (or copy) as COBY will place them, seen from
+    the side (x–z, y–z) or from the top (x–y). Warns when a protein sticks out of the box,
+    and when proteins or copies overlap (beads closer than 0.3 nm).
+
+    Args:
+        result: The values of the sidebar (box and placement settings).
+        protein_only: Proteins in water: no membrane is drawn.
+    """
     import numpy as np
     from openmembranebuilder.builders.membrane import schematic as sch
 
@@ -1115,8 +1372,19 @@ def render_system_view(result: dict, protein_only: bool) -> None:
 
 
 def render_preview(config, has_protein: bool, protein_only: bool = False) -> None:
+    """Draw the preview page: all settings at a glance and the Build button.
+
+    When proteins and membrane belong to different Martini generations, a warning is
+    shown and building needs an explicit confirmation.
+
+    Args:
+        config: The settings to show.
+        has_protein: Show the protein part.
+        protein_only: Proteins in water: no composition is shown.
+    """
     def md(label, val):
         # values are user input (output name, file names) -> escape before injecting HTML
+        """One label with its value below it (text is made safe for the page)."""
         return (
             f'<p style="font-size:17px; color:gray; margin:0">{html.escape(str(label))}</p>'
             f'<p style="font-size:20px; font-weight:600; margin:0 0 16px 0">'
@@ -1124,16 +1392,19 @@ def render_preview(config, has_protein: bool, protein_only: bool = False) -> Non
         )
 
     def row(label1, val1, label2="", val2=""):
+        """Two label/value pairs side by side."""
         c1, c2 = st.columns(2)
         c1.markdown(md(label1, val1), unsafe_allow_html=True)
         c2.markdown(md(label2, val2), unsafe_allow_html=True)
 
     def row4(l1, v1, l2, v2, l3, v3, l4, v4):
+        """Four label/value pairs side by side."""
         c1, c2, c3, c4 = st.columns(4)
         for c, l, v in [(c1, l1, v1), (c2, l2, v2), (c3, l3, v3), (c4, l4, v4)]:
             c.markdown(md(l, v), unsafe_allow_html=True)
 
     def content():
+        """The summary sections and the Back / Build buttons."""
         st.subheader("Please check your settings before building.")
 
         with st.expander("⚙️ General", expanded=True):
@@ -1242,6 +1513,15 @@ def render_preview(config, has_protein: bool, protein_only: bool = False) -> Non
 
 
 def _parse_solvation(solvation: str) -> dict:
+    """Read ions, salt and antifreeze water back from a solvation text.
+
+    Args:
+        solvation: Solvation in COBY's notation.
+
+    Returns:
+        `pos_ion`, `neg_ion`, `salt_molarity` and `replace_w_percentage`, with defaults
+        for anything not found.
+    """
     result = {
         "pos_ion": "NA",
         "neg_ion": "CL",

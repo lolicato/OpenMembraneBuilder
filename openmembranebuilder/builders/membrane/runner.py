@@ -1,3 +1,21 @@
+"""Building the systems: from the settings to `system.gro`, `system.pdb` and `topol.top`.
+
+`MembraneRunner.run` does the work, in the GUI as well as with `omb cli`:
+
+1. It creates the output folder (`systems/`, `toppar/`, `user_inputs/`) and copies the force
+   field, the simulation settings (`mdp/`) and the run scripts into it.
+2. It copies the protein topologies to `toppar/<name>.itp` and names the molecule inside each
+   one after the protein (`[ moleculetype ]` → `<name> 1`).
+3. For every composition (one, or one per template block) and every system (`R0001`,
+   `R0002`, …) it works out where each protein goes, then lets COBY build the system.
+4. It tidies the topology: correct include paths, a descriptive title, one include and one
+   summed line per protein that occurs in several copies.
+5. It packs everything into `downloads/<output folder>.zip`.
+
+`TopologyEditor` holds the topology clean-ups; `run_coby_simulation` is the single place
+where COBY is called.
+"""
+
 import sys
 from pathlib import Path
 
@@ -21,8 +39,10 @@ from openmembranebuilder.builders.membrane.parser import MembraneParser
 
 
 class MembraneRunner:
+    """Builds all systems described by a membrane `Config`."""
 
     def __init__(self):
+        """Prepare the helpers: folder locations, file copying, topology editing, lipid parsing."""
         self.global_info      = GlobalInfo()
         self.file_manager     = FileManager()
         self.topology_editor  = TopologyEditor()
@@ -31,10 +51,19 @@ class MembraneRunner:
     # ─── Public entry point ───────────────────────────────────────────────────
 
     def run(self, config) -> list[str]:
-        """
-        Build all membrane systems defined in config.
-        Handles both membrane-only and protein insertion.
-        Returns (output_pdbs, zip_path).
+        """Build every system of the configuration.
+
+        Membrane-only systems and systems with proteins are handled alike; with proteins,
+        their positions and rotations are worked out per system first (fixed, random, on a
+        grid, independent copies, or two proteins at a given gap) and recorded in
+        `config.protein_params`, so the build can be reproduced.
+
+        Args:
+            config: The membrane settings (`openmembranebuilder.builders.membrane.config.Config`).
+
+        Returns:
+            `(output_pdbs, zip_path)`: `(label, pdb path)` for every built system, and the
+            path of the zip archive.
         """
         with_protein = bool(config.protein_files)
 
@@ -157,6 +186,14 @@ class MembraneRunner:
 
 
     def _collect_selected_molecule_builders(self, config) -> list[str]:
+        """The custom-lipid recipes needed by the composition being built.
+
+        Args:
+            config: The membrane settings.
+
+        Returns:
+            The recipes of the custom lipids that occur in the composition.
+        """
         index = getattr(config, "molecule_builder_index", {}) or {}
         entries = getattr(config, "entries_current", []) or []
 
@@ -170,6 +207,16 @@ class MembraneRunner:
 
 
     def _rotate_protein(self, config, system_index: int) -> None:
+        """Decide the orientation of every protein, for all systems at once.
+
+        Fixed angles are copied to every system; a random orientation is drawn once for all
+        systems, or anew for every system with "re-randomize for each system". Runs for the
+        first system, and again for later systems only when orientations change per system.
+
+        Args:
+            config: The membrane settings; `protein_params` is filled in.
+            system_index: Number of the system being built (0 for `R0001`).
+        """
         if system_index != 0 and not config.randomize_rot_every:
             return
 
@@ -192,6 +239,15 @@ class MembraneRunner:
                 config.protein_params[key][pdb_name]["rz"] = round(rz, 4)
 
     def _position_protein(self, config, system_index: int) -> None:
+        """Decide the x/y position of every protein, for all systems at once.
+
+        Fixed positions are copied to every system. A random position keeps 2.5 nm away from
+        the box edge, and is drawn once for all systems or anew for every system.
+
+        Args:
+            config: The membrane settings; `protein_params` is filled in.
+            system_index: Number of the system being built (0 for `R0001`).
+        """
         margin = 2.5
         if system_index != 0 and not config.randomize_pos_every:
             return
@@ -217,6 +273,28 @@ class MembraneRunner:
     def _resolve_cz(self, pdb_path: str, system_path: str, config,
             molecule_imports: list, rx: float, ry: float, rz: float,
             pdb_name: str = None, upper_z_mem: float | None = None) -> float:
+        """The z position (height) of a protein, in nm from the box centre.
+
+        - "Absolute z position": the value entered.
+        - "Height above Membrane": a membrane of the same composition is built once without
+          the protein, its upper surface is measured (average height of the highest 10 % of
+          lipid beads), and the protein is placed so that its lowest bead – after rotation –
+          is `distance_to_mem` above that surface.
+
+        Args:
+            pdb_path: The protein structure.
+            system_path: The system folder (used for the temporary membrane).
+            config: The membrane settings.
+            molecule_imports: Extra structures COBY needs (e.g. cholesterol for Martini 2).
+            rx: Rotation about x, in degrees.
+            ry: Rotation about y, in degrees.
+            rz: Rotation about z, in degrees.
+            pdb_name: The protein's file name (to find its entered z).
+            upper_z_mem: Membrane surface already measured, in Å (skips building it again).
+
+        Returns:
+            The z position, in nm.
+        """
         if config.z_method != "Height above Membrane":
             filename = pdb_name or os.path.basename(pdb_path)
             return config.protein_params.get("R0001", {}).get(filename, {}).get("cz", 0.0)
@@ -224,17 +302,36 @@ class MembraneRunner:
         # the membrane surface is measured once and can be passed in (independent copies)
         if upper_z_mem is None:
             upper_z_mem = self._create_pure_membrane_system(system_path, config, molecule_imports)
+        # surface height (Å, from the box bottom) -> nm from the box centre, plus the gap
         cz = upper_z_mem / 10.0 + config.distance_to_mem - config.box_z / 2
 
         u   = mda.Universe(pdb_path)
         com = u.atoms.center_of_geometry()
         rot = R.from_euler("XYZ", [rx, ry, rz], degrees=True)  # COBY: Rx·Ry·Rz
         rotated = rot.apply(u.atoms.positions - com) + com
+        # COBY places the protein by its centre: lift it by the distance from its centre
+        # down to its lowest bead, so the lowest bead sits at the requested gap
         cz += (rotated[:, 2].mean() - rotated[:, 2].min()) / 10.0
         return round(cz, 4)
     
     def _build_protein_line(self, pdb_path, cx, cy, cz, rx, ry, rz,
                         moleculetype: str = "Protein") -> str:
+        """The instruction for COBY that places one protein (or one copy).
+
+        Args:
+            pdb_path: The protein structure.
+            cx: Position along x, in nm from the box centre.
+            cy: Position along y, in nm from the box centre.
+            cz: Position along z, in nm from the box centre.
+            rx: Rotation about x, in degrees.
+            ry: Rotation about y, in degrees.
+            rz: Rotation about z, in degrees.
+            moleculetype: The molecule name used in the topology (the protein's name).
+
+        Returns:
+            COBY's protein text, e.g.
+            `"file:1UBQ.pdb cx:0.0000 … rz:0.0000 moleculetype:1UBQ"`.
+        """
         return (
             f"file:{pdb_path} cx:{cx:.4f} cy:{cy:.4f} cz:{cz:.4f}"
             f" rx:{rx:.4f} ry:{ry:.4f} rz:{rz:.4f}"
@@ -243,6 +340,23 @@ class MembraneRunner:
     
     def _insert_multiple_proteins(self, pdb_path: str, system_path: str, config,
                                molecule_imports: list, system_index: int) -> list[str]:
+        """Place several copies of one protein in a system.
+
+        "Move together": the box is divided into a grid, the copies take randomly chosen
+        cells and share the protein's orientation (or each get a random one with "Randomize
+        the rotation for all copies"). "Move independently" is handed to
+        `_insert_independent_copies`.
+
+        Args:
+            pdb_path: The protein structure, copied into the system folder.
+            system_path: The system folder.
+            config: The membrane settings.
+            molecule_imports: Extra structures COBY needs.
+            system_index: Number of the system being built (0 for `R0001`).
+
+        Returns:
+            One COBY protein text per copy.
+        """
         self._ensure_protein_params(config)
         self._rotate_protein(config, system_index)
 
@@ -278,11 +392,23 @@ class MembraneRunner:
 
     def _insert_independent_copies(self, pdb_path: str, pdb_name: str, system_path: str, config,
                                    molecule_imports: list, system_index: int) -> list[str]:
-        """Copies placed one by one with their own position and rotation (config.copy_params).
+        """Place copies one by one, each with its own position and orientation.
 
-        Random rotations (randomize_rot) are drawn per copy: once for all systems, or again for
-        every system with randomize_rot_every. The poses used are stored per system in
-        config.protein_params[Rxxxx][pdb_name]["copies"], so the build can be reproduced.
+        The poses come from the protein insertion page (`config.copy_params`). With a random
+        orientation, every copy gets its own; it is drawn once and reused for all systems, or
+        drawn again for every system with "re-randomize for each system". The poses used are
+        recorded in `config.protein_params[<system>][<protein>]["copies"]`.
+
+        Args:
+            pdb_path: The protein structure.
+            pdb_name: The protein's file name.
+            system_path: The system folder.
+            config: The membrane settings.
+            molecule_imports: Extra structures COBY needs.
+            system_index: Number of the system being built (0 for `R0001`).
+
+        Returns:
+            One COBY protein text per copy.
         """
         key = f"R{system_index + 1:04d}"
         first = config.protein_params.get("R0001", {}).get(pdb_name, {}).get("copies") or []
@@ -310,6 +436,20 @@ class MembraneRunner:
 
     def _insert_protein(self, system_path: str, config,
                     molecule_imports: list, system_index: int = 0) -> list[str]:
+        """Place each protein once in a system (no copies).
+
+        Orientation, x/y position (or the two-protein gap) and height are decided, the
+        structure is copied into the system folder and the COBY texts are made.
+
+        Args:
+            system_path: The system folder.
+            config: The membrane settings.
+            molecule_imports: Extra structures COBY needs.
+            system_index: Number of the system being built (0 for `R0001`).
+
+        Returns:
+            One COBY protein text per protein.
+        """
         self._ensure_protein_params(config)
         self._rotate_protein(config, system_index)
 
@@ -344,11 +484,16 @@ class MembraneRunner:
         return lines
     
     def _get_protein_extent_on_x(self, pdb_path: str, rx: float, ry: float, rz: float) -> tuple[float, float]:
-        """
-        Returns (half_extent, center_offset) in nm.
-        Rotates the protein, then returns:
-        - half the x-span (max_x - min_x) / 2
-        - the x offset of the COM after rotation (to handle asymmetric proteins)
+        """Half of the width of the rotated protein along x, in nm.
+
+        Args:
+            pdb_path: The protein structure.
+            rx: Rotation about x, in degrees.
+            ry: Rotation about y, in degrees.
+            rz: Rotation about z, in degrees.
+
+        Returns:
+            Half the x width, in nm.
         """
         u   = mda.Universe(pdb_path)
         pos = u.atoms.positions  
@@ -363,12 +508,14 @@ class MembraneRunner:
 
 
     def _position_two_proteins_by_distance(self, config, system_index: int) -> None:
-        """
-        Positions exactly two proteins along the X axis with `config.protein_distance`
-        gap between their surfaces. Both get cy=0.0.
+        """Place two proteins side by side along x with a given gap between them.
 
-        Protein A placed at  +x, Protein B at -x.
-        x = (half_extent_A + distance/2)  and  -(half_extent_B + distance/2)
+        The first protein goes to +x, the second to −x, both at y = 0, so that the gap
+        between their facing edges equals `config.protein_distance`.
+
+        Args:
+            config: The membrane settings; `protein_params` is filled in.
+            system_index: Number of the system being built.
         """
         pdb_names = list(config.protein_files.keys())
         assert len(pdb_names) == 2, "Distance mode requires exactly 2 proteins"
@@ -403,6 +550,19 @@ class MembraneRunner:
 
     def _create_pure_membrane_system(self, system_path: str, config,
                                      molecule_imports: list) -> float:
+        """Build the membrane once without proteins and measure its upper surface.
+
+        The trial membrane is built in a temporary folder that is removed afterwards.
+
+        Args:
+            system_path: The system folder.
+            config: The membrane settings.
+            molecule_imports: Extra structures COBY needs.
+
+        Returns:
+            Height of the upper membrane surface, in Å from the bottom of the box
+            (0.0 when the measurement failed).
+        """
         now          = datetime.now()
         random_int   = random.randint(100000, 999999)
         temp_dir     = os.path.join(system_path,
@@ -433,6 +593,17 @@ class MembraneRunner:
                 shutil.rmtree(temp_dir)
 
     def _measure_membrane_z(self, gro_path: str, config) -> float:
+        """The height of the upper membrane surface in a built system.
+
+        Taken as the average height of the highest 10 % of the lipid beads.
+
+        Args:
+            gro_path: The built trial membrane (`system.gro`).
+            config: The membrane settings (to know the lipid names).
+
+        Returns:
+            The height in Å, or 0.0 when it cannot be measured.
+        """
         try:
             u           = mda.Universe(gro_path)
             lipid_names = [entry[0] for entry in config.entries_current]
@@ -452,6 +623,11 @@ class MembraneRunner:
     
 
     def _ensure_protein_params(self, config) -> None:
+        """Make sure every system has a pose entry (all zeros) for every protein.
+
+        Args:
+            config: The membrane settings; `protein_params` is completed.
+        """
         for i in range(config.n_systems):
             key = f"R{i + 1:04d}"
             if key not in config.protein_params:
@@ -464,6 +640,17 @@ class MembraneRunner:
                     }
 
     def _build_molecule_imports(self, config) -> list:
+        """Extra structures COBY needs that are not part of its own library.
+
+        With Martini 2.2: the cholesterol model chosen (`CHOL` or `CHOL2`) and antifreeze
+        water (`WF`) when used.
+
+        Args:
+            config: The membrane settings.
+
+        Returns:
+            COBY import texts.
+        """
         imports = []
         chol = self.membrane_parser.check_chol_import(config)
         if chol == "CHOL":
@@ -475,6 +662,14 @@ class MembraneRunner:
         return imports
 
     def _collect_output_pdbs(self, system_folders: list[str]) -> list[tuple[str, str]]:
+        """Write `system.pdb` next to every `system.gro` for the 3D view.
+
+        Args:
+            system_folders: The system folders that were built.
+
+        Returns:
+            `(folder name, pdb path)` for every system.
+        """
         results = []
         for system_path in system_folders:
             gro_candidate = os.path.join(system_path, "eq3.gro")
@@ -489,6 +684,16 @@ class MembraneRunner:
         return results
     
     def _make_grid(self, boxx: float, boxy: float, n_copies: int) -> list[tuple[float, float]]:
+        """The grid on which copies "moving together" are placed.
+
+        Args:
+            boxx: Box length x, in nm.
+            boxy: Box length y, in nm.
+            n_copies: Number of copies.
+
+        Returns:
+            Cell centres `(x, y)` in nm from the box centre (n × n cells, n² ≥ copies).
+        """
         n  = math.ceil(math.sqrt(n_copies))
         dx = boxx / n
         dy = boxy / n
@@ -502,9 +707,21 @@ class MembraneRunner:
 
 
 class TopologyEditor:
+    """Clean-ups of the topology (`topol.top`) and protein `.itp` files after COBY."""
+
     def __init__(self):
+        """Prepare the editor with the standard folder locations."""
         self.global_info = GlobalInfo()
     def edit_topology(self, ff_name: str, destination: str):
+        """Put the force-field includes at the top of `topol.top`, with correct paths.
+
+        The include lines of the force field are added in front of COBY's topology, and every
+        include is made to point to `../../toppar/…`, where the files are in the output.
+
+        Args:
+            ff_name: The force field, e.g. `"martini_v3"`.
+            destination: The system folder with `topol.top`.
+        """
         topol_file = os.path.join(destination, "topol.top")
         ff_itp = os.path.join(self.global_info.toppar_folder_path, f"{ff_name}.top")
 
@@ -518,6 +735,7 @@ class TopologyEditor:
             topol_lines = f.readlines()[1:]
 
         def fix_include_path(line):
+            """Make an `#include "…"` line point into `../../toppar/`."""
             return re.sub(
                 r'(#include\s+")(.*?)(")',
                 lambda m: m.group(1) + "../../toppar/" + m.group(2) + m.group(3),
@@ -525,7 +743,7 @@ class TopologyEditor:
             )
 
         def collapse_blank_lines(text: str) -> str:
-
+            """Replace runs of blank lines by a single blank line."""
             return re.sub(r'\n{3,}', '\n\n', text)
 
         fixed_itp_lines   = [fix_include_path(line) for line in itp_lines]
@@ -538,9 +756,14 @@ class TopologyEditor:
             f.write(merged)
 
     def replace_placeholder_title(self, topol_path: str, config) -> None:
-        """
-        Replaces PLACEHOLDER_TITLE in topol.top with a descriptive system title:
-        {protein_filename}_{lipid1}_{upper1}_{lower1}_{lipid2}_{upper2}_{lower2}_...
+        """Give the system a descriptive title in `topol.top`.
+
+        The title lists the protein names and the composition, e.g.
+        `1UBQ_POPC_0.7_0.3_CHOL_0.3_0.7` (lipid, upper, lower for every lipid).
+
+        Args:
+            topol_path: The `topol.top` file.
+            config: The membrane settings.
         """
         # Build membrane composition string
         entries = config.entries_current if hasattr(config, "entries_current") and config.entries_current \
@@ -575,10 +798,14 @@ class TopologyEditor:
         with open(topol_path, "w") as f:
             f.write(content)
     def overwrite_moleculetype_line(self, itp_file: str,moleculetype_name: str = "Protein"):
-        """
-        Overwrites the first line after [ moleculetype ] with the given name (the protein's name).
-        
-        :param itp_file: Path to the .itp file.
+        """Rename the molecule in an `.itp` file.
+
+        The first line after `[ moleculetype ]` becomes `<name> 1`, so the topology lists the
+        protein under its own name (for example `1UBQ`).
+
+        Args:
+            itp_file: The `.itp` file, changed in place.
+            moleculetype_name: The new name.
         """
         with open(itp_file, 'r') as f:
             lines = f.readlines()
@@ -606,7 +833,12 @@ class TopologyEditor:
 
 
     def fix_protein_includes_only(self, topol_path: str, protein_itp_names: list[str]):
-        """protein_itp_names: list of stem.itp filenames e.g. ['proteinA.itp', 'proteinB.itp']"""
+        """Point the include lines of the protein topologies to `../../toppar/<name>.itp`.
+
+        Args:
+            topol_path: The `topol.top` file.
+            protein_itp_names: The protein `.itp` file names, e.g. `["1UBQ.itp"]`.
+        """
         with open(topol_path, 'r') as f:
             lines = f.readlines()
 
@@ -626,10 +858,14 @@ class TopologyEditor:
             f.writelines(updated_lines)
 
     def fix_multiple_protein_topology(self, topol_path: str) -> None:
-        """Copies of one protein: include its itp once and list it once in [ molecules ].
+        """One include and one line per protein, however many copies there are.
 
-        COBY writes one #include and one "<name> 1" line per copy; identical #include lines
-        are kept once and consecutive lines of the same molecule are summed.
+        COBY writes one `#include` and one `<name> 1` line for every copy. Identical include
+        lines are kept once, and consecutive lines of the same molecule in `[ molecules ]`
+        are added up, e.g. three copies of 1UBQ become `1UBQ        3`.
+
+        Args:
+            topol_path: The `topol.top` file, changed in place.
         """
         with open(topol_path, "r") as f:
             lines = f.readlines()
@@ -651,6 +887,7 @@ class TopologyEditor:
         pending_name, pending_count = None, 0
 
         def flush():
+            """Write the molecule line collected so far."""
             nonlocal pending_name, pending_count
             if pending_name is not None:
                 result.append(f"{pending_name:<12s}{pending_count}\n")
@@ -683,10 +920,30 @@ class TopologyEditor:
             f.writelines(result)
 
 class ForceFieldManager:
+    """Older helpers to list and copy force fields from a local `toppar` folder.
+
+    Kept for compatibility; the builder uses `FileManager`, which works with the shipped
+    files.
+    """
+
     def get_forcefield_names(self, toppar_dir: str) -> list:
+        """The force fields in a folder (one `.top` file each).
+
+        Args:
+            toppar_dir: The folder to look in.
+
+        Returns:
+            Force-field names without the `.top` ending.
+        """
         return [os.path.splitext(f)[0] for f in os.listdir(toppar_dir) if f.endswith('.top')]
 
     def copy_ff_folder(self, ff_name: str, destination: str):
+        """Copy a force field from a local `toppar` folder.
+
+        Args:
+            ff_name: The force field.
+            destination: Where to copy it.
+        """
         src_folder = os.path.join("toppar", ff_name)
         dst_folder = os.path.join(destination, ff_name)
         
@@ -706,6 +963,13 @@ class ForceFieldManager:
 
 
     def copy_mdp_files(self, ff_name: str, destination: str, system_type: str):
+        """Copy simulation settings from a local `mdp` folder.
+
+        Args:
+            ff_name: The force field.
+            destination: The output folder.
+            system_type: `"membrane"` or `"protein"`.
+        """
         src_mdp = os.path.join("mdp", ff_name, system_type)
         dst_mdp = os.path.join(destination, "mdp")
         if os.path.exists(src_mdp):
@@ -715,6 +979,15 @@ class ForceFieldManager:
 
 
 def convert_gro_to_pdb(gro_file: str, pdb_file: str) -> Optional[str]:
+    """Write a `.pdb` copy of a `.gro` structure.
+
+    Args:
+        gro_file: The structure to convert.
+        pdb_file: The file to write.
+
+    Returns:
+        The `.pdb` path, or `None` when the conversion failed.
+    """
     try:
         u = mda.Universe(gro_file)
         with mda.Writer(pdb_file) as w:
@@ -724,10 +997,28 @@ def convert_gro_to_pdb(gro_file: str, pdb_file: str) -> Optional[str]:
         print(f"Gro→Pdb failed: {e}")
         return None
 def run_coby_simulation(params: dict, protein_lines: Optional[str], system_path: str) -> str:
-    """Combine args and run COBY"""
+    """Build one system with COBY.
+
+    Translates the settings into COBY's arguments – box (by box type), membrane,
+    solvation, topology includes, extra structures, custom lipids and proteins – and
+    writes `system.gro` and `topol.top` into the system folder.
+
+    Args:
+        params: Box, membrane, solvation and topology settings.
+        protein_lines: COBY protein texts (one per protein or copy), or empty.
+        system_path: The system folder.
+
+    Returns:
+        The system folder.
+
+    Raises:
+        ValueError: The box type is not known.
+    """
 
     box_type = params.get("box_type", params.get("boxtype", "rectangular"))
 
+    # COBY wants only the lengths each box type needs: x, y, z (rectangular),
+    # x and z (hexagonal) or x alone (skewed hexagonal)
     if box_type == "rectangular":
         box = [
             float(params["boxx"]),
