@@ -1,0 +1,29 @@
+/* Small additions to the Material theme (same look as the OpenMembraneBuilder-AA docs):
+   hero block on the home page, feature cards, tables and framed screenshots. */
+:root { --omb-hero-from: #00695c; --omb-hero-to: #00897b; }
+[data-md-color-scheme="slate"] { --omb-hero-from: #004d40; --omb-hero-to: #00695c; }
+
+.omb-hero {
+  background: linear-gradient(135deg, var(--omb-hero-from), var(--omb-hero-to));
+  color: #fff; border-radius: 0.8rem; padding: 2rem 2rem 1.6rem; margin: 0 0 1.6rem;
+}
+.omb-hero h1 { color: #fff; margin: 0 0 0.4rem; font-weight: 700; }
+.omb-hero p { font-size: 0.85rem; max-width: 46rem; opacity: 0.95; }
+.omb-hero code { background: rgba(255,255,255,0.16); color: #fff; }
+.omb-hero .md-button { color: #fff; border-color: rgba(255,255,255,0.7); margin: 0.3rem 0.4rem 0 0; }
+.omb-hero .md-button--primary { background: #fff; color: var(--omb-hero-from); border-color: #fff; }
+
+.md-typeset .grid.cards > ul > li { border-radius: 0.6rem; }
+.md-typeset table:not([class]) { font-size: 0.72rem; }
+.md-typeset table:not([class]) td:first-child code { white-space: nowrap; }
+.md-typeset .mermaid { text-align: center; }
+
+/* Screenshots of the app: a soft frame */
+.md-typeset img.screenshot {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+/* Section titles inside the code reference read a little tighter */
+.md-typeset .doc-section-title { margin-top: 0.8em; }
