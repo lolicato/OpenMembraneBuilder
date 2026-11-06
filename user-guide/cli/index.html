@@ -925,6 +925,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-proteins-with-one-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many proteins with one template
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-you-can-change" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1636,6 +1647,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-proteins-with-one-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many proteins with one template
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-you-can-change" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1715,16 +1737,106 @@ the same structure as a build from the app, its own copy of <code>config.json</c
 <h2 id="what-is-rebuilt-and-what-is-reused">What is rebuilt, and what is reused<a class="headerlink" href="#what-is-rebuilt-and-what-is-reused" title="Permanent link">&para;</a></h2>
 <p>The file has one section per step of the app (see <a href="../../reference/config/">config.json</a>):</p>
 <ul>
-<li><strong><code>martinize</code></strong> – how the proteins were prepared. It is <strong>not</strong> run again: the finished
-  protein files are recorded in the <code>membrane</code> section (<code>protein_files</code>) and used directly.</li>
-<li><strong><code>membrane</code></strong> – everything else; this is what is built.</li>
+<li><strong><code>martinize</code></strong> – how the proteins are prepared: where the structure comes from, clean-up,
+  chains, mutation and the martinize2 options.</li>
+<li><strong><code>membrane</code></strong> – the system: box, water, lipids, the finished protein files
+  (<code>protein_files</code>) and the placement of the proteins.</li>
 </ul>
+<p>By default the finished protein files recorded in <code>protein_files</code> are <strong>reused</strong> – martinize2
+is not run again, and the systems are built exactly from the proteins you prepared before.</p>
+<p>The proteins are <strong>prepared again</strong> (download or file → clean-up → chains → mutation →
+martinize2, exactly as in the app) when</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--pdb ID_OR_FILE</code></td>
+<td>the protein is replaced by another structure (see below)</td>
+</tr>
+<tr>
+<td><code>--martinize</code></td>
+<td>you ask for it, e.g. after changing martinize2 options in the file</td>
+</tr>
+<tr>
+<td>no <code>protein_files</code></td>
+<td>the file has a <code>martinize</code> section but no finished proteins (e.g. a template you wrote by hand)</td>
+</tr>
+</tbody>
+</table>
+<p>The work of the preparation is kept in the new output folder, under <code>martinize/p0/</code>,
+<code>martinize/p1/</code>, … (structures, <code>martinize.log</code>, the exact martinize2 command), and the
+<code>config.json</code> written there records the prepared files – so that output rebuilds again
+without running martinize2.</p>
+<div class="admonition note">
+<p class="admonition-title">Proteins uploaded as atomistic files in the app</p>
+<p>The app keeps uploaded atomistic structures only during the session. To prepare such a
+protein again from the command line, pass the file: <code>--pdb my_protein.pdb</code>. (Proteins
+fetched by PDB code are simply downloaded again.)</p>
+</div>
 <div class="admonition important">
-<p class="admonition-title">Run it from the same folder</p>
-<p>The protein files in <code>protein_files</code> point into the earlier build (e.g.
-<code>output/OpenMembraneBuilder-…/user_inputs/1UBQ.pdb</code>), relative to the folder where that
-build ran. Start <code>omb cli</code> from the same folder, or edit the paths to where the files are
-now.</p>
+<p class="admonition-title">Where the protein files are looked for</p>
+<p><code>protein_files</code> points into the earlier build (<code>…/user_inputs/1UBQ.pdb</code>, <code>…/toppar/1UBQ.itp</code>).
+If you moved or deleted that build, use <code>--martinize</code> (or <code>--pdb</code>) to prepare the protein
+again, or edit the paths.</p>
+</div>
+<h2 id="many-proteins-with-one-template">Many proteins with one template<a class="headerlink" href="#many-proteins-with-one-template" title="Permanent link">&para;</a></h2>
+<p><code>--pdb</code> turns any configuration into a template: the protein is replaced by another structure,
+which is prepared with the martinize2 settings of the file, and inserted with its placement
+(height above the membrane, rotation, copies …).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># 1. set everything up once in the app (e.g. with 1UBQ) and keep its config.json</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>cp<span class="w"> </span>output/OpenMembraneBuilder-20261106_101500/config.json<span class="w"> </span>template.json
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># 2. the same system for other proteins</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">for</span><span class="w"> </span>PDB<span class="w"> </span><span class="k">in</span><span class="w"> </span>1BFF<span class="w"> </span>1UBQ<span class="w"> </span>2RH1<span class="w"> </span>4HHB<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span>omb<span class="w"> </span>cli<span class="w"> </span>template.json<span class="w"> </span>--pdb<span class="w"> </span><span class="si">${</span><span class="nv">PDB</span><span class="si">}</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="k">done</span>
+</code></pre></div>
+<p>Each run creates its own folder, named after the protein:
+<code>output/OpenMembraneBuilder-&lt;date&gt;_&lt;time&gt;-headless-1BFF/</code>, … .</p>
+<table>
+<thead>
+<tr>
+<th><code>--pdb</code> value</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a PDB code, e.g. <code>1UBQ</code></td>
+<td>downloaded from the RCSB PDB</td>
+</tr>
+<tr>
+<td>a file, e.g. <code>structures/fgf2.pdb</code></td>
+<td>your atomistic structure</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>The protein's <strong>name</strong> becomes the PDB code (upper case) or the file name without <code>.pdb</code>
+  (<code>fgf2</code>), so the files and the topology are called <code>1UBQ.pdb</code>, <code>1UBQ.itp</code>, <code>1UBQ</code>.</li>
+<li><strong>Kept from the template</strong>: clean-up, martinize2 force field, secondary structure, elastic
+  network, restraints, disulfide bridges, extra options – and the protein's placement.</li>
+<li><strong>Reset</strong>: chain and residue selections and the mutation, which belong to one particular
+  structure – all chains of the new structure are used.</li>
+<li><strong>Several proteins</strong>: give <code>--pdb</code> once per protein, in order
+  (<code>--pdb 1BFF --pdb 1UBQ</code>); extra ones get the settings of the last protein.</li>
+</ul>
+<p>Local files work the same way:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">for</span><span class="w"> </span>f<span class="w"> </span><span class="k">in</span><span class="w"> </span>structures/*.pdb<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>omb<span class="w"> </span>cli<span class="w"> </span>template.json<span class="w"> </span>--pdb<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$f</span><span class="s2">&quot;</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">done</span>
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">When a protein fails</p>
+<p><code>omb cli</code> stops with <code>Error: &lt;name&gt;: …</code> and exit code 1 (e.g. a code that does not exist,
+no internet access, or martinize2 failing on a structure with gaps), and the loop goes on
+with the next protein. Collect the failures with
+<code>omb cli template.json --pdb $PDB || echo $PDB &gt;&gt; failed.txt</code>.</p>
 </div>
 <h2 id="what-you-can-change">What you can change<a class="headerlink" href="#what-you-can-change" title="Permanent link">&para;</a></h2>
 <table>
@@ -1761,7 +1873,11 @@ now.</p>
 </tr>
 <tr>
 <td>protein files</td>
-<td><code>protein_files</code></td>
+<td><code>protein_files</code> – or another structure with <code>--pdb</code></td>
+</tr>
+<tr>
+<td>martinize2 options</td>
+<td><code>martinize</code> → <code>proteins</code> (then use <code>--martinize</code>)</td>
 </tr>
 <tr>
 <td>protein placement</td>
@@ -1784,6 +1900,10 @@ random values are drawn.</p>
 <tr>
 <td>0</td>
 <td>built</td>
+</tr>
+<tr>
+<td>1</td>
+<td>a protein could not be prepared (the message says why)</td>
 </tr>
 <tr>
 <td>2</td>

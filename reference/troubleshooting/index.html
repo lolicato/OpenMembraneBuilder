@@ -1731,6 +1731,11 @@ Prepare them again with the matching martinize2 force field (<code>martini3001</
 file). Remove it; the valid keys are listed in <a href="../config/">config.json</a>.</p>
 </details>
 <details class="question">
+<summary><code>omb cli</code>: Error: 1XYZ: Could not fetch PDB ID</summary>
+<p>The code does not exist at RCSB, or the computer has no internet access. Download the
+structure yourself and pass the file: <code>--pdb 1xyz.pdb</code>.</p>
+</details>
+<details class="question">
 <summary><code>omb cli</code>: protein file not found</summary>
 <p>The paths in <code>protein_files</code> are relative to the folder where the original build ran.
 Start <code>omb cli</code> from that folder, or change the paths.</p>

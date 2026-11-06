@@ -1400,6 +1400,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#protein-insertion" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1620,6 +1631,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#protein-insertion" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1718,6 +1740,16 @@
 <li><strong>▶ Run simulations</strong> on the results page starts <code>systems/run.sh</code> in the background after a
   build, with its log, a refresh and a stop button.</li>
 <li><code>omb gui --no-run</code> (or <code>OMB_NO_RUN=1</code>) hides it, for apps offered on web servers.</li>
+</ul>
+<h3 id="command-line">Command line<a class="headerlink" href="#command-line" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>omb cli template.json --pdb 1UBQ</code> builds the same system with another protein – a PDB code
+  or an atomistic <code>.pdb</code> file – prepared with the template's martinize2 settings; ideal for
+  loops over many proteins.</li>
+<li><code>--martinize</code> prepares the proteins again; a configuration with a <code>martinize</code> section but
+  without finished protein files is prepared automatically.</li>
+<li>The <code>config.json</code> written by <code>omb cli</code> records the prepared proteins and the placements
+  actually used.</li>
 </ul>
 <h3 id="protein-insertion">Protein insertion<a class="headerlink" href="#protein-insertion" title="Permanent link">&para;</a></h3>
 <ul>
