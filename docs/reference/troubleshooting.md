@@ -94,6 +94,10 @@
     The `membrane` section contains a key this version does not know (often from an older
     file). Remove it; the valid keys are listed in [config.json](config.md).
 
+??? question "`omb cli`: Error: 1XYZ: Could not fetch PDB ID"
+    The code does not exist at RCSB, or the computer has no internet access. Download the
+    structure yourself and pass the file: `--pdb 1xyz.pdb`.
+
 ??? question "`omb cli`: protein file not found"
     The paths in `protein_files` are relative to the folder where the original build ran.
     Start `omb cli` from that folder, or change the paths.

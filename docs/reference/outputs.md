@@ -36,6 +36,10 @@ downloads/OpenMembraneBuilder-20261106_101500-ubq.zip
 | `OpenMembraneBuilder-<date>_<time>` | built in the app |
 | `OpenMembraneBuilder-<date>_<time>-<name>` | built in the app with an output folder name |
 | `OpenMembraneBuilder-<date>_<time>-headless` | built with `omb cli` |
+| `OpenMembraneBuilder-<date>_<time>-headless-1UBQ` | built with `omb cli … --pdb 1UBQ` |
+
+A build from `omb cli` that prepared its proteins also contains `martinize/p0/`, … with the
+work of the protein preparation (structures, `martinize.log`, the martinize2 command).
 
 System folders are `R0001`, `R0002`, …; with several compositions (see
 [Membrane templates](../user-guide/templates.md#using-a-template)) they are

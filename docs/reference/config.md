@@ -151,7 +151,9 @@ Fixed (not random) positions and rotations are taken from `R0001` for all system
 
 ## The `martinize` section
 
-One entry per protein in `proteins`, with how it was prepared:
+One entry per protein in `proteins`, with how it was prepared. `omb cli` uses it to prepare
+the proteins again with `--martinize` or `--pdb`, or when `membrane.protein_files` is empty
+(see [Command line](../user-guide/cli.md#what-is-rebuilt-and-what-is-reused)):
 
 | Key | Meaning |
 |---|---|

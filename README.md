@@ -155,7 +155,14 @@ omb cli config.json
 ```
 
 Use any `config.json` from an earlier build to rebuild the same system or, after editing it,
-a variant of it.
+a variant of it. With `--pdb` it becomes a template for other proteins, which are prepared
+with martinize2 and inserted the same way:
+
+```bash
+for PDB in 1BFF 1UBQ 2RH1; do
+    omb cli template.json --pdb ${PDB}     # a PDB code or an atomistic .pdb file
+done
+```
 
 Outputs are written to the folder you run `omb` from:
 

@@ -1691,8 +1691,14 @@ where <code>omb</code> was started (or in <code>$OMB_WORKDIR</code>).</p>
 <td><code>OpenMembraneBuilder-&lt;date&gt;_&lt;time&gt;-headless</code></td>
 <td>built with <code>omb cli</code></td>
 </tr>
+<tr>
+<td><code>OpenMembraneBuilder-&lt;date&gt;_&lt;time&gt;-headless-1UBQ</code></td>
+<td>built with <code>omb cli … --pdb 1UBQ</code></td>
+</tr>
 </tbody>
 </table>
+<p>A build from <code>omb cli</code> that prepared its proteins also contains <code>martinize/p0/</code>, … with the
+work of the protein preparation (structures, <code>martinize.log</code>, the martinize2 command).</p>
 <p>System folders are <code>R0001</code>, <code>R0002</code>, …; with several compositions (see
 <a href="../../user-guide/templates/#using-a-template">Membrane templates</a>) they are
 <code>&lt;composition&gt;_R0001</code>, ….</p>

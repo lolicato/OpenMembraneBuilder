@@ -20,6 +20,16 @@
   build, with its log, a refresh and a stop button.
 - `omb gui --no-run` (or `OMB_NO_RUN=1`) hides it, for apps offered on web servers.
 
+### Command line
+
+- `omb cli template.json --pdb 1UBQ` builds the same system with another protein – a PDB code
+  or an atomistic `.pdb` file – prepared with the template's martinize2 settings; ideal for
+  loops over many proteins.
+- `--martinize` prepares the proteins again; a configuration with a `martinize` section but
+  without finished protein files is prepared automatically.
+- The `config.json` written by `omb cli` records the prepared proteins and the placements
+  actually used.
+
 ### Protein insertion
 
 - **System view**: box, membrane and proteins in x–z, y–z and x–y, drawn from the real

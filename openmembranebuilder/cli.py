@@ -4,6 +4,7 @@
 omb gui [--port 8501] [streamlit options]   start the graphical interface in the browser
 omb gui --no-run                            the same, without the "Run simulations" button
 omb cli config.json                         rebuild the systems of a saved config.json (no GUI)
+omb cli template.json --pdb 1UBQ            the same, with another protein (prepared with martinize2)
 omb --version                               print the installed version
 ```
 
@@ -50,7 +51,8 @@ def main(argv=None) -> int:
             tests pass a list such as `["cli", "config.json"]`.
 
     Returns:
-        The exit code: `0` when everything went well, `3` when the configuration file does
+        The exit code: `0` when everything went well, `1` when a protein could not be
+        prepared, `3` when the configuration file does
         not exist, otherwise the exit code of Streamlit.
     """
     parser = argparse.ArgumentParser(prog="omb", description="OpenMembraneBuilder: Martini membrane and membrane–protein systems with COBY")
@@ -61,7 +63,13 @@ def main(argv=None) -> int:
     g.add_argument("--no-run", action="store_true",
                    help="hide the 'Run simulations' button (e.g. when the app is offered on a web server)")
     c = sub.add_parser("cli", help="build the systems of a config.json without the GUI")
-    c.add_argument("config", help="config.json written by an earlier build")
+    c.add_argument("config", help="config.json written by an earlier build (or a template)")
+    c.add_argument("--pdb", action="append", metavar="ID_OR_FILE",
+                   help="use this structure for the protein: a PDB code (downloaded from RCSB) or an "
+                        "atomistic .pdb file, prepared with the martinize2 settings of the config; "
+                        "repeat for several proteins")
+    c.add_argument("--martinize", action="store_true",
+                   help="prepare the proteins again with martinize2, even if finished files are recorded")
     args, extra = parser.parse_known_args(argv)
 
     if args.cmd == "gui":
@@ -80,7 +88,11 @@ def main(argv=None) -> int:
         print(f"Error: {args.config} not found", file=sys.stderr)
         return 3
     from openmembranebuilder.wizard.runner import run_from_config
-    run_from_config(args.config)
+    try:
+        run_from_config(args.config, pdbs=args.pdb, martinize=args.martinize)
+    except (RuntimeError, ValueError) as e:      # e.g. a protein that could not be prepared
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
